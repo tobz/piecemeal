@@ -1,0 +1,19 @@
+//! A library for generating Protocol Buffers messages in an incremental fashion.
+
+#![deny(missing_docs)]
+#![allow(dead_code)]
+
+pub mod builder;
+pub mod errors;
+pub mod helpers;
+pub mod io;
+pub mod message;
+pub mod types;
+
+pub use crate::builder::{GenericMapBuilder, RepeatedBuilder};
+pub use crate::errors::{Error, ProtoResult};
+pub use crate::io::{
+    scratch::{ScratchBuffer, ScratchWriter},
+    writer::Writer,
+};
+pub use crate::message::{MessageInfo, MessageWrite};
