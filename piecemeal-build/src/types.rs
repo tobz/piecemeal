@@ -10,6 +10,22 @@ use crate::errors::{Error, Result};
 use crate::keywords::sanitize_keyword;
 use crate::parser::file_descriptor;
 
+/// Converts a PascalCase string to snake_case.
+fn to_snake_case(s: &str) -> String {
+    let mut result = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if c.is_uppercase() {
+            if i > 0 {
+                result.push('_');
+            }
+            result.push(c.to_ascii_lowercase());
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Syntax {
     #[default]
@@ -563,7 +579,7 @@ impl Message {
 
         if !(self.messages.is_empty() && self.enums.is_empty()) {
             writeln!(w)?;
-            writeln!(w, "pub mod mod_{} {{", self.name)?;
+            writeln!(w, "pub mod {} {{", to_snake_case(&self.name))?;
             writeln!(w)?;
 
             Self::write_common_uses(w, &self.messages)?;
@@ -814,18 +830,21 @@ impl Message {
     fn set_package(&mut self, package: &str, module: &str) {
         // The complication here is that the _package_ (as declared in the proto file) does
         // not directly map to the _module_. For example, the package 'a.A' where A is a
-        // message will be the module 'a.mod_A', since we can't reuse the message name A as
+        // message will be the module 'a.a', since we can't reuse the message name A as
         // the submodule containing nested items. Also, protos with empty packages always
         // have a module corresponding to the file name.
         let (child_package, child_module) = if package.is_empty() {
             self.module = module.to_string();
-            (self.name.clone(), format!("{}.mod_{}", module, self.name))
+            (
+                self.name.clone(),
+                format!("{}.{}", module, to_snake_case(&self.name)),
+            )
         } else {
             self.package = package.to_string();
             self.module = module.to_string();
             (
                 format!("{}.{}", package, self.name),
-                format!("{}.mod_{}", module, self.name),
+                format!("{}.{}", module, to_snake_case(&self.name)),
             )
         };
 

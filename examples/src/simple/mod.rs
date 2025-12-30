@@ -4,7 +4,7 @@ use piecemeal::ScratchWriter;
 mod protos {
     include!(concat!(env!("OUT_DIR"), "/protos/piecemeal/mod.rs"));
 }
-use self::protos::metrics_example::MetricPayloadBuilder;
+use self::protos::metrics_example::{MetricPayloadBuilder, metric_payload::AggregationType};
 
 fn main() {
     let mut scratch_buf = Vec::with_capacity(1024);
@@ -20,7 +20,7 @@ fn main() {
                     pb.unix_timestamp(1234567890)?.value(42.0)?;
                     Ok(())
                 })?
-                .aggregation_type(protos::metrics_example::MetricPayload_AggregationType::DELTA);
+                .aggregation_type(AggregationType::CUMULATIVE)?;
 
             Ok(())
         })
