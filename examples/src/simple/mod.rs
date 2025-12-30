@@ -19,7 +19,8 @@ fn main() {
                 .add_points(|pb| {
                     pb.unix_timestamp(1234567890)?.value(42.0)?;
                     Ok(())
-                })?;
+                })?
+                .aggregation_type(protos::metrics_example::MetricPayload_AggregationType::DELTA);
 
             Ok(())
         })

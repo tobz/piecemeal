@@ -52,12 +52,12 @@ cargo check          # Type check only
 **Supported:**
 - Non-nested and nested messages
 - Repeated fields (streaming serialization)
+- Enums
 - Map fields with scalar keys/values
 - Proto2 and Proto3 syntax
 
 **Not supported:**
 - Map fields with message values
-- Enums
 - Oneof fields
 - Packed repeated fields
 - Deserialization

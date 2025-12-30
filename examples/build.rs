@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
 fn main() {
+    println!("cargo:rerun-if-changed=build.rs");
+
     // Handle code generation for pure Protocol Buffers message types via `piecemeal-build`.
     let out_directory = PathBuf::from(std::env::var("OUT_DIR").unwrap())
         .join("protos")
