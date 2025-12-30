@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package imports.importing_file;
+
+import "base_types.proto";
+
+message ImportingMessage {
+    imports.base_types.BaseMessage base = 1;
+    imports.base_types.BaseEnum status = 2;
+    string extra_field = 3;
+}

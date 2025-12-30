@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package messages.empty_message;
+
+message EmptyMessage {
+}
+
+message ContainsEmpty {
+    EmptyMessage empty = 1;
+    string name = 2;
+}

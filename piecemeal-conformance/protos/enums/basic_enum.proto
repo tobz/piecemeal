@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package enums.basic_enum;
+
+enum Status {
+    UNKNOWN = 0;
+    ACTIVE = 1;
+    INACTIVE = 2;
+    DELETED = 3;
+}
+
+message MessageWithEnum {
+    Status status = 1;
+    string name = 2;
+}

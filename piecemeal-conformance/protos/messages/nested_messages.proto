@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package messages.nested_messages;
+
+message Outer {
+    message Middle {
+        message Inner {
+            string value = 1;
+            int32 count = 2;
+        }
+        Inner inner = 1;
+        string label = 2;
+    }
+    Middle middle = 1;
+    string name = 2;
+}

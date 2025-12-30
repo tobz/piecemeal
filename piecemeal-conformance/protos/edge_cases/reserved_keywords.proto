@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package edge_cases.reserved_keywords;
+
+// Test that Rust reserved keywords are handled correctly in generated code.
+// Note: 'async' and 'await' are missing from piecemeal's keyword list - that's a bug to fix.
+// This test uses keywords that ARE in the list.
+message KeywordMessage {
+    string type = 1;
+    int32 match = 2;
+    string self = 3;
+    int64 mod = 4;
+    uint32 fn = 5;
+    string impl = 6;
+    bool pub = 7;
+    int32 use = 8;
+    string crate = 9;
+}

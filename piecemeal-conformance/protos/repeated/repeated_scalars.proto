@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package repeated.repeated_scalars;
+
+message RepeatedScalars {
+    repeated int32 int32_values = 1;
+    repeated int64 int64_values = 2;
+    repeated string string_values = 3;
+    // Note: repeated bool and repeated bytes are not yet supported by piecemeal
+    repeated double double_values = 4;
+    repeated uint32 uint32_values = 5;
+}

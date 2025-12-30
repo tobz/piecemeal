@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package imports.base_types;
+
+message BaseMessage {
+    string id = 1;
+    int64 timestamp = 2;
+}
+
+enum BaseEnum {
+    BASE_UNKNOWN = 0;
+    BASE_VALUE_ONE = 1;
+    BASE_VALUE_TWO = 2;
+}
