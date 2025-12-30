@@ -2,10 +2,11 @@ use crate::types::{FileDescriptor, MessageIndex};
 use std::cmp::min;
 use std::collections::HashMap;
 
-/// A recursive strongly connected component function
+/// Find all strongly connected messages in a Protocol Buffers import.
 ///
-/// Uses Tarjan's algorithm
-/// https://www.geeksforgeeks.org/tarjan-algorithm-find-strongly-connected-components/
+/// Based on [Tarjan's algorithm][tarjans_scc] for finding strongly connected components in a graph.
+///
+/// [tarjans_scc]: https://www.geeksforgeeks.org/tarjan-algorithm-find-strongly-connected-components/
 #[allow(clippy::too_many_arguments)]
 fn scc(
     vertices: &[MessageIndex],

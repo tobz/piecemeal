@@ -2,7 +2,7 @@
 
 use byteorder::{LittleEndian as LE, WriteBytesExt};
 
-use crate::{message::MessageWrite, types::PackedFixed, ProtoResult};
+use crate::{ProtoResult, message::MessageWrite, types::PackedFixed};
 
 /// A Protocol Buffers-specific writer.
 ///

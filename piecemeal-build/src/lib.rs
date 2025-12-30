@@ -8,42 +8,7 @@ use errors::{Error, Result};
 use std::path::{Path, PathBuf};
 use types::Config;
 
-/// A builder for [Config]
-///
-/// # Example build.rs
-///
-/// ```rust,no_run
-/// use piecemeal_build::{types::FileDescriptor, ConfigBuilder};
-/// use std::path::{Path, PathBuf};
-/// use walkdir::WalkDir;
-///
-/// # fn main() {
-/// let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("protos");
-/// let include_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("protos");
-/// // Re-run this build.rs if the protos dir changes (i.e. a new file is added)
-/// println!("cargo:rerun-if-changed={}", include_dir.to_str().unwrap());
-///
-/// // Find all *.proto files in the `in_dir` and add them to the list of files
-/// let mut input_files = Vec::new();
-/// let proto_ext = Some(Path::new("proto").as_os_str());
-/// for entry in WalkDir::new(&include_dir) {
-///     let path = entry.unwrap().into_path();
-///     if path.extension() == proto_ext {
-///         // Re-run this build.rs if any of the files in the protos dir change
-///         println!("cargo:rerun-if-changed={}", path.to_str().unwrap());
-///         input_files.push(path);
-///     }
-/// }
-///
-/// // Delete all old generated files before re-generating new ones
-/// if out_dir.exists() {
-///     std::fs::remove_dir_all(&out_dir).unwrap();
-/// }
-/// std::fs::DirBuilder::new().create(&out_dir).unwrap();
-/// let config_builder = ConfigBuilder::new(&input_files, out_dir, &[include_dir]).unwrap();
-/// FileDescriptor::run(&config_builder.build()).unwrap()
-/// # }
-/// ```
+/// Builder for generating the configuration for Protocol Buffers code generation.
 #[derive(Debug, Default)]
 pub struct ConfigBuilder {
     in_files: Vec<PathBuf>,
@@ -52,18 +17,16 @@ pub struct ConfigBuilder {
     single_module: bool,
     error_cycle: bool,
     headers: bool,
-    dont_use_cow: bool,
-    custom_struct_derive: Vec<String>,
-    custom_repr: Option<String>,
-    owned: bool,
-    nostd: bool,
-    hashbrown: bool,
-    gen_info: bool,
     add_deprecated_fields: bool,
-    generate_getters: bool,
 }
 
 impl ConfigBuilder {
+    /// Creates a new `ConfigBuilder from the given input files, include directories, and output directory.
+    ///
+    /// # Errors
+    ///
+    /// If no input files are provided, if they don't exist, or if the output directory doesn't exist and can't be
+    /// created, an error is returned.
     pub fn new<I, O, IP>(
         in_files: &[I],
         output_dir: O,
@@ -113,81 +76,44 @@ impl ConfigBuilder {
         })
     }
 
-    /// Omit generation of modules for each package when there is only one package
+    /// Omit the generation of modules for each package when there is only one package.
+    ///
+    /// Defaults to `false`.
     pub fn single_module(mut self, val: bool) -> Self {
         self.single_module = val;
         self
     }
 
-    /// Error out if recursive messages do not have optional fields
+    /// Whether or not to emit an error during code generation if a recursive message contains cycles that are not
+    /// broken by the use of optional fields.
+    ///
+    /// Defaults to `false.`
     pub fn error_cycle(mut self, val: bool) -> Self {
         self.error_cycle = val;
         self
     }
 
-    /// Enable module comments and module attributes in generated file (default = true)
+    /// Whether or not to emit certain attribute headers in the generated code to suppress various Clippy lints, such as
+    /// missing documentation or dead code, and so on.
+    ///
+    /// Defaults to `true`.
     pub fn headers(mut self, val: bool) -> Self {
         self.headers = val;
         self
     }
 
-    /// Add custom values to `#[derive(...)]` at the beginning of every structure
-    pub fn custom_struct_derive(mut self, val: Vec<String>) -> Self {
-        self.custom_struct_derive = val;
-        self
-    }
-
-    /// Add custom values to `#[repr(...)]` at the beginning of every structure
-    pub fn custom_repr(mut self, val: Option<String>) -> Self {
-        self.custom_repr = val;
-        self
-    }
-
-    /// Use `Cow<_,_>` for Strings and Bytes
-    pub fn dont_use_cow(mut self, val: bool) -> Self {
-        self.dont_use_cow = val;
-        self
-    }
-
-    /// Generate Owned structs when the proto struct has a lifetime
-    pub fn owned(mut self, val: bool) -> Self {
-        self.owned = val;
-        self
-    }
-
-    /// Generate `#![no_std]` compliant code
-    pub fn nostd(mut self, val: bool) -> Self {
-        self.nostd = val;
-        self
-    }
-
-    /// Use hashbrown as `HashMap` implementation instead of [std::collections::HashMap] or
-    /// [alloc::collections::BTreeMap](https://doc.rust-lang.org/alloc/collections/btree_map/struct.BTreeMap.html)
-    /// in a `no_std` environment
-    pub fn hashbrown(mut self, val: bool) -> Self {
-        self.hashbrown = val;
-        self
-    }
-
-    /// Generate `MessageInfo` implementations
-    pub fn gen_info(mut self, val: bool) -> Self {
-        self.gen_info = val;
-        self
-    }
-
-    /// Add deprecated fields and mark them as `#[deprecated]`
+    /// Whether or not to add deprecated fields to the generated code or not.
+    ///
+    /// If set to `true`, deprecated fields will be added to the generated code and all relevant methods for interacting
+    /// with them will be annotated with `#[deprecated]`.
+    ///
+    /// Defaults to `false`.
     pub fn add_deprecated_fields(mut self, val: bool) -> Self {
         self.add_deprecated_fields = val;
         self
     }
 
-    /// Generate getters for Proto2 `optional` fields with custom default values
-    pub fn generate_getters(mut self, val: bool) -> Self {
-        self.generate_getters = val;
-        self
-    }
-
-    /// Build [Config] from this `ConfigBuilder`
+    /// Builds a list of code generation configurations, one for each input file.
     pub fn build(self) -> Vec<Config> {
         self.in_files
             .into_iter()
@@ -201,16 +127,7 @@ impl ConfigBuilder {
                     single_module: self.single_module,
                     error_cycle: self.error_cycle,
                     headers: self.headers,
-                    dont_use_cow: self.dont_use_cow, //Change this to true to not use cow with ./generate.sh for v2 and v3 tests
-                    custom_struct_derive: self.custom_struct_derive.clone(),
-                    custom_repr: self.custom_repr.clone(),
-                    custom_includes: Vec::new(),
-                    owned: self.owned,
-                    nostd: self.nostd,
-                    hashbrown: self.hashbrown,
-                    gen_info: self.gen_info,
                     add_deprecated_fields: self.add_deprecated_fields,
-                    generate_getters: self.generate_getters,
                 }
             })
             .collect()

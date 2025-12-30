@@ -1,12 +1,14 @@
 [workspace]
 members = [
+  "examples",
   "piecemeal",
   "piecemeal-build",
 ]
 resolver = "2"
 
 [workspace.package]
-edition = "2021"
+authors = ["Toby Lawrence <toby@nuclearfurnace.com>"]
+edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/tobz/piecemeal"
 

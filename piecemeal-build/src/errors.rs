@@ -1,37 +1,48 @@
 use std::io;
 
-/// An error enum
+/// Main error type when building.
 #[derive(Debug)]
 pub enum Error {
-    /// IO error
+    /// I/O error.
     Io(io::Error),
-    /// Nom Error
+
+    /// Failed to parse the Protocol Buffers definition.
     Nom(nom::Err<nom::error::Error<String>>),
-    /// Nom's other failure case; giving up in the middle of a file
+
+    /// Additional data remaining in the .proto file after parsing.
     TrailingGarbage(String),
-    /// No .proto file provided
+
+    /// No .proto file was provided.
     NoProto,
-    /// Cannot read input file
+
+    /// Failed to read input file.
     InputFile(String),
-    /// Cannot read output file
+
+    /// Failed to read output file.
     OutputFile(String),
-    /// Failed to create output directory
+
+    /// Failed to create output directory.
     FailedToCreateOutputDirectory(io::Error),
+
     /// Multiple input files with `--output` argument
     OutputMultipleInputs,
-    /// Invalid message
+
+    /// Encountered an invalid message definition.
     InvalidMessage(String),
+
     /// Varint decoding error
     InvalidImport(String),
+
     /// Empty read
     EmptyRead,
+
     /// Enum or message not found
     MessageOrEnumNotFound(String),
+
     /// Invalid default enum
     InvalidDefaultEnum(String),
-    /// Missing `read_fn` implementation for maps
-    ReadFnMap,
-    /// Cycle detected
+
+    /// Detected a cycle in the definition.
     Cycle(Vec<String>),
 }
 
@@ -59,12 +70,14 @@ impl std::fmt::Display for Error {
         match self {
             Error::Io(e) => write!(f, "{}", e),
             Error::Nom(e) => write!(f, "{}", e),
-            Error::TrailingGarbage(s) => write!(f, "parsing abandoned near: {:?}", s),
-            Error::NoProto => write!(f, "No .proto file provided"),
-            Error::InputFile(file) => write!(f, "Cannot read input file '{}'", file),
-            Error::OutputFile(file) => write!(f, "Cannot read output file '{}'", file),
+            Error::TrailingGarbage(s) => {
+                write!(f, "additional data in .proto file after parsing: {:?}", s)
+            }
+            Error::NoProto => write!(f, "no .proto file was provided"),
+            Error::InputFile(file) => write!(f, "failed to read input file '{}'", file),
+            Error::OutputFile(file) => write!(f, "failed to read output file '{}'", file),
             Error::FailedToCreateOutputDirectory(e) => {
-                write!(f, "Failed to create output directory: {}", e)
+                write!(f, "failed to create output directory: {}", e)
             }
             Error::OutputMultipleInputs => write!(f, "--output only allowed for single input file"),
             Error::InvalidMessage(msg) => write!(
@@ -75,27 +88,26 @@ impl std::fmt::Display for Error {
             ),
             Error::InvalidImport(imp) => write!(
                 f,
-                "Cannot convert protobuf import into module import:: {}\r\n\
-                Import definition might be invalid, some characters may not be supported",
+                "could not convert Protocol Buffers import into module import: {} (import definition might be invalid, or some characters may not be supported)",
                 imp
             ),
             Error::EmptyRead => write!(
                 f,
-                "No message or enum were read;\
-                either definition might be invalid or there were only unsupported structures"
+                "no messages or enums were read (definition may be invalid or only unsupported structures were defined)"
             ),
-            Error::MessageOrEnumNotFound(me) => write!(f, "Could not find message or enum {}", me),
+            Error::MessageOrEnumNotFound(me) => {
+                write!(f, "could not find message or enum '{}'", me)
+            }
             Error::InvalidDefaultEnum(en) => {
                 write!(
                     f,
-                    "Enum field cannot be set to '{}', this variant does not exist",
+                    "enum field cannot be set to '{}': variant does not exist",
                     en
                 )
             }
-            Error::ReadFnMap => write!(f, "There should be a special case for maps"),
             Error::Cycle(msgs) => write!(
                 f,
-                "Messages {:?} are cyclic (missing an optional field)",
+                "messages {:?} are cyclic (missing an optional field)",
                 msgs
             ),
         }

@@ -1,13 +1,14 @@
-#![allow(missing_docs)]
+//! General builder types for working with certain field types.
 
 use std::marker::PhantomData;
 
 use crate::{
+    ProtoResult, ScratchBuffer, ScratchWriter, Writer,
     helpers::*,
     types::{ProtobufValue, WireType},
-    ProtoResult, ScratchBuffer, ScratchWriter, Writer,
 };
 
+/// A generic map builder.
 pub struct GenericMapBuilder<'w, S, K, V>
 where
     S: ScratchBuffer,
@@ -26,6 +27,7 @@ where
     K: MapScalar + ?Sized,
     V: MapScalar + ?Sized,
 {
+    /// Creates a new `GenericMapBuilder` with the given field tag and scratch writer.
     pub fn new(field_tag: u32, writer: &'w mut ScratchWriter<S>) -> Self {
         Self {
             field_tag,
@@ -35,6 +37,7 @@ where
         }
     }
 
+    /// Writes an entry to the map.
     pub fn write_entry<K2, V2>(&mut self, key: K2, value: V2) -> ProtoResult<()>
     where
         K2: AsRef<K>,
@@ -50,8 +53,16 @@ where
     }
 }
 
+/// A scalar value suitable as a map key or value.
 pub trait MapScalar {
+    /// Returns the size of the scalar value, in bytes, when serialized.
     fn write_size(&self) -> usize;
+
+    /// Writes the scalar value to the writer with the given field number.
+    ///
+    /// # Errors
+    ///
+    /// If there is an error writing the scalar, an error is returned.
     fn write_scalar<W: Writer>(&self, field_number: u32, writer: &mut W) -> ProtoResult<()>;
 }
 
@@ -121,6 +132,7 @@ map_scalar_impl!(deref, from => bool, sizeof_bool, write_bool);
 map_scalar_impl!(from => str, sizeof_str, write_string);
 map_scalar_impl!(from => [u8], sizeof_bytes, write_bytes);
 
+/// A repeated field builder.
 pub struct RepeatedBuilder<'w, S, T, V: ?Sized> {
     field_number: u32,
     writer: &'w mut ScratchWriter<S>,
@@ -133,6 +145,7 @@ where
     T: ProtobufValue<V>,
     V: ?Sized,
 {
+    /// Creates a new `RepeatedBuilder` with the given field number and scratch writer.
     pub fn new(field_number: u32, writer: &'w mut ScratchWriter<S>) -> Self {
         Self {
             field_number,
@@ -141,20 +154,28 @@ where
         }
     }
 
+    /// Adds a new value to the repeated field.
     pub fn add(&mut self, value: &V) -> ProtoResult<()> {
         self.writer
             .write_tag(tag(self.field_number, T::wire_type()))?;
         T::write_value(self.writer, value)
     }
 
-    pub fn add_many_mapped<'a, I, F, R>(
-        &mut self,
-        values: impl IntoIterator<Item = &'a I>,
-        map: F,
-    ) -> ProtoResult<()>
+    /// Adds new values from an iterator to the repeated field.
+    pub fn add_many<I, IT>(&mut self, values: I) -> ProtoResult<()>
     where
-        I: 'a,
-        F: Fn(&'a I) -> R,
+        I: IntoIterator<Item = IT>,
+        IT: std::borrow::Borrow<V>,
+    {
+        self.add_many_mapped(values, std::convert::identity)
+    }
+
+    /// Adds new values from an iterator to the repeated field after mapping their value.
+    pub fn add_many_mapped<'a, I, IT, F, R>(&mut self, values: I, map: F) -> ProtoResult<()>
+    where
+        I: IntoIterator<Item = IT>,
+        IT: 'a,
+        F: Fn(IT) -> R,
         R: std::borrow::Borrow<V> + 'a,
     {
         if T::packable() {

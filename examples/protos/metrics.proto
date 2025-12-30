@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package metrics_example;
+
+message Metadata {
+	uint32 origin_product_id = 1;
+    uint32 origin_service_id = 2;
+}
+
+message MetricPayload {
+    message MetricPoint {
+        double value = 1;
+        int64 unix_timestamp = 2;
+    }
+
+    message MetricSeries {
+        string name = 1;
+        repeated string tags = 2;
+        repeated MetricPoint points = 3;
+        Metadata metadata = 4;
+    }
+
+    repeated MetricSeries series = 1;
+}

@@ -8,6 +8,7 @@ use crate::types::{
 };
 
 use nom::{
+    IResult,
     branch::alt,
     bytes::complete::{tag, take_until},
     character::complete::{
@@ -16,7 +17,6 @@ use nom::{
     combinator::{map, map_res, opt, recognize, value, verify},
     multi::{many0, many1, separated_list0, separated_list1},
     sequence::{delimited, pair, preceded, separated_pair, terminated, tuple},
-    IResult,
 };
 
 #[derive(Debug, Clone)]
@@ -231,8 +231,8 @@ fn field_type(input: &str) -> IResult<&str, FieldType> {
         value(FieldType::Fixed64, tag("fixed64")),
         value(FieldType::Sfixed64, tag("sfixed64")),
         value(FieldType::Bool, tag("bool")),
-        value(FieldType::StringCow, tag("string")),
-        value(FieldType::BytesCow, tag("bytes")),
+        value(FieldType::String, tag("string")),
+        value(FieldType::Bytes, tag("bytes")),
         value(FieldType::Float, tag("float")),
         value(FieldType::Double, tag("double")),
         map(map_field, |(k, v)| FieldType::Map(Box::new(k), Box::new(v))),
@@ -260,7 +260,7 @@ fn default_check<'a>(
     for &(k, v) in key_vals.iter() {
         if k == "default" {
             return match (syntax, typ) {
-                (Syntax::Proto2, FieldType::StringCow | FieldType::BytesCow) => {
+                (Syntax::Proto2, FieldType::String | FieldType::Bytes) => {
                     let remove_compulsory_inverted_commas: IResult<&str, &str> =
                         alt((
                             delimited(tag("\""), take_until("\""), tag("\"")),
@@ -634,11 +634,7 @@ mod test {
     use std::path::Path;
 
     fn result_assert(cond: bool, msg: Option<&str>) -> Result<(), &str> {
-        if cond {
-            Ok(())
-        } else {
-            Err(msg.unwrap_or(""))
-        }
+        if cond { Ok(()) } else { Err(msg.unwrap_or("")) }
     }
 
     fn result_assert_eq<T: PartialEq>(o1: T, o2: T, msg: Option<&str>) -> Result<(), &str> {
@@ -981,8 +977,7 @@ mod test {
                 result_assert_eq(1, mess.fields.len(), None)?;
                 match mess.fields[0].typ {
                     FieldType::Map(ref key, ref value) => match (&**key, &**value) {
-                        (&FieldType::String_, &FieldType::Int32) => (),
-                        (&FieldType::StringCow, &FieldType::Int32) => (),
+                        (&FieldType::String, &FieldType::Int32) => (),
                         _ => panic!(
                             "Expecting Map<String, Int32> found Map<{:?}, {:?}>",
                             key, value

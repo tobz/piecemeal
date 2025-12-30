@@ -1,25 +1,18 @@
-//! A module to handle all errors
+//! Error handling.
 
-/// An error enum
+/// Main error type when encoding.
 #[derive(Debug)]
 pub enum Error {
-    /// Io error
+    /// I/O error.
     Io(std::io::Error),
-    /// Utf8 Error
-    Utf8(::core::str::Utf8Error),
-    /// Deprecated feature (in protocol buffer specification)
-    Deprecated(&'static str),
-    /// Unknown wire type
-    UnknownWireType(u8),
-    /// Varint decoding error
-    Varint,
-    /// Error while parsing protocol buffer message
-    Message(String),
-    /// Unexpected map tag
-    Map(u8),
-    /// Out of data when reading from or writing to a byte buffer
+
+    /// UTF-8 error.
+    Utf8(std::str::Utf8Error),
+
+    /// Unexpectedly ran out of data when reading/writing to a byte buffer.
     UnexpectedEndOfBuffer,
-    /// The supplied output buffer is not large enough to serialize the message
+
+    /// The supplied output buffer is not large enough to serialize the message.
     OutputBufferTooSmall,
 }
 
@@ -31,7 +24,7 @@ impl From<Error> for std::io::Error {
         match val {
             Error::Io(x) => x,
             Error::Utf8(x) => std::io::Error::new(std::io::ErrorKind::InvalidData, x),
-            x => std::io::Error::new(std::io::ErrorKind::Other, x),
+            x => std::io::Error::other(x),
         }
     }
 }
@@ -42,8 +35,8 @@ impl From<std::io::Error> for Error {
     }
 }
 
-impl From<::core::str::Utf8Error> for Error {
-    fn from(e: ::core::str::Utf8Error) -> Error {
+impl From<std::str::Utf8Error> for Error {
+    fn from(e: std::str::Utf8Error) -> Error {
         Error::Utf8(e)
     }
 }
@@ -58,20 +51,13 @@ impl std::error::Error for Error {
     }
 }
 
-impl core::fmt::Display for Error {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Error::Io(e) => write!(f, "{}", e),
-            Error::Utf8(e) => write!(f, "{}", e),
-            Error::Deprecated(feature) => write!(f, "Feature '{}' has been deprecated", feature),
-            Error::UnknownWireType(e) => {
-                write!(f, "Unknown wire type '{}', must be less than 6", e)
-            }
-            Error::Varint => write!(f, "Cannot decode varint"),
-            Error::Message(msg) => write!(f, "Error while parsing message: {}", msg),
-            Error::Map(tag) => write!(f, "Unexpected map tag: '{}', expecting 1 or 2", tag),
-            Error::UnexpectedEndOfBuffer => write!(f, "Unexpected end of buffer"),
-            Error::OutputBufferTooSmall => write!(f, "Output buffer too small"),
+            Error::Io(e) => write!(f, "I/O error: {}", e),
+            Error::Utf8(e) => write!(f, "UTF-8 error: {}", e),
+            Error::UnexpectedEndOfBuffer => write!(f, "unexpected end of buffer"),
+            Error::OutputBufferTooSmall => write!(f, "output buffer too small"),
         }
     }
 }

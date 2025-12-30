@@ -2,7 +2,7 @@
 
 use std::{cmp::Reverse, collections::BinaryHeap};
 
-use crate::{helpers::sizeof_varint, ProtoResult};
+use crate::{ProtoResult, helpers::sizeof_varint};
 
 use super::writer::Writer;
 
@@ -33,7 +33,7 @@ impl ScratchBuffer for Vec<u8> {
     }
 }
 
-impl<'a> ScratchBuffer for &'a mut Vec<u8> {
+impl ScratchBuffer for &mut Vec<u8> {
     fn clear(&mut self) {
         Vec::clear(self);
     }
@@ -228,7 +228,7 @@ impl<B: ScratchBuffer> Writer for ScratchWriter<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{helpers::tag, types::WireType, Writer};
+    use crate::{Writer, helpers::tag, types::WireType};
 
     fn varint_field(field_number: u32) -> u32 {
         tag(field_number, WireType::Varint)
