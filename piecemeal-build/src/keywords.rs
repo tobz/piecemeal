@@ -76,16 +76,16 @@ static RUST_KEYWORDS: [&str; 75] = [
     "yield",
 ];
 
-/// Check if the identifier is a Rust keyword and appends a `_pb` suffix if that's the case
+/// Check if the identifier is a Rust keyword and appends an underscore suffix if that's the case
 pub fn sanitize_keyword(ident: &mut String) {
     if !ident.contains('.') && RUST_KEYWORDS.contains(&&**ident) {
-        ident.push_str("_pb");
+        ident.push('_');
     } else {
         *ident = ident
             .split('.')
             .map(|s| {
                 if RUST_KEYWORDS.contains(&s) {
-                    format!("{}_pb", s)
+                    format!("{}_", s)
                 } else {
                     s.to_string()
                 }

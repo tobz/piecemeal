@@ -3,6 +3,7 @@ members = [
   "examples",
   "piecemeal",
   "piecemeal-build",
+  "piecemeal-conformance",
 ]
 resolver = "2"
 
