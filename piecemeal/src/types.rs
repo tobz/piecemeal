@@ -1,6 +1,6 @@
 //! Common types and traits.
 
-use crate::{ProtoResult, Writer};
+use crate::{ProtoResult, ScratchBuffer, ScratchWriter, Writer};
 
 /// Automatically generated implementations of core traits for Protocol Buffers types.
 pub mod protobuf {
@@ -362,4 +362,10 @@ impl<'a, T: Copy + PartialEq> PackedFixed<'a, T> {
             _ => unreachable!(),
         }
     }
+}
+
+/// A message builder.
+pub trait MessageBuilder {
+    /// Creates a new message builder from the given scratch writer.
+    fn from_writer<'w, S: ScratchBuffer>(writer: &'w mut ScratchWriter<S>) -> Self;
 }

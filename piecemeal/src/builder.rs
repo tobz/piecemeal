@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use crate::{
     ProtoResult, ScratchBuffer, ScratchWriter, Writer,
     helpers::*,
-    types::{ProtobufValue, WireType},
+    types::{MessageBuilder, ProtobufValue, WireType},
 };
 
 /// A generic map builder.
@@ -131,6 +131,58 @@ map_scalar_impl!(deref, from => f64, sizeof_f64, write_double);
 map_scalar_impl!(deref, from => bool, sizeof_bool, write_bool);
 map_scalar_impl!(from => str, sizeof_str, write_string);
 map_scalar_impl!(from => [u8], sizeof_bytes, write_bytes);
+
+/// A map builder for maps with message values.
+///
+/// Similar to [`GenericMapBuilder`], but for message value types.
+/// The `V` type parameter is a marker for the value builder type (used only for type inference).
+pub struct MessageMapBuilder<'w, S, K, V>
+where
+    S: ScratchBuffer,
+    K: MapScalar + ?Sized,
+{
+    field_tag: u32,
+    writer: &'w mut ScratchWriter<S>,
+    _key_type: PhantomData<K>,
+    _value_builder: PhantomData<fn() -> V>,
+}
+
+impl<'w, S, K, V> MessageMapBuilder<'w, S, K, V>
+where
+    S: ScratchBuffer,
+    K: MapScalar + ?Sized,
+    V: MessageBuilder,
+{
+    /// Creates a new `MessageMapBuilder` with the given field tag and scratch writer.
+    pub fn new(field_tag: u32, writer: &'w mut ScratchWriter<S>) -> Self {
+        Self {
+            field_tag,
+            writer,
+            _key_type: PhantomData,
+            _value_builder: PhantomData,
+        }
+    }
+
+    /// Writes an entry to the map.
+    pub fn write_entry<K2, F>(&mut self, key: K2, f: F) -> ProtoResult<()>
+    where
+        K2: AsRef<K>,
+        F: FnOnce(&mut V) -> ProtoResult<()>,
+    {
+        let key_ref = key.as_ref();
+        self.writer.write_tag(self.field_tag)?;
+        self.writer.track_message(move |sw| {
+            // Map entries are just like a series of repeated messages, where the message
+            // has two fields: the key (field 1), and the value (field 2).
+            key_ref.write_scalar(1, sw)?;
+            sw.write_tag(tag(2, WireType::LengthDelimited))?;
+            sw.track_message(move |sw| {
+                let mut builder = V::from_writer(sw);
+                f(&mut builder)
+            })
+        })
+    }
+}
 
 /// A repeated field builder.
 pub struct RepeatedBuilder<'w, S, T, V: ?Sized> {

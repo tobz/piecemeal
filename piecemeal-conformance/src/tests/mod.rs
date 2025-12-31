@@ -145,6 +145,35 @@ fn map_builder_works() {
 }
 
 #[test]
+fn map_with_message_value_builder_works() {
+    use protos::maps::map_scalar_message::MapScalarMessageBuilder;
+
+    let mut scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(&mut scratch_buf);
+
+    let mut builder = MapScalarMessageBuilder::new(&mut scratch_writer);
+    builder
+        .string_to_message()
+        .write_entry("key1", |inner| {
+            inner.name("test_name")?.value(42)?;
+            Ok(())
+        })
+        .unwrap();
+    builder
+        .string_to_message()
+        .write_entry("key2", |inner| {
+            inner.name("another_name")?.value(100)?;
+            Ok(())
+        })
+        .unwrap();
+
+    let mut output = Vec::new();
+    builder.finish(&mut output).unwrap();
+
+    assert!(!output.is_empty());
+}
+
+#[test]
 fn import_builder_works() {
     use protos::imports::base_types::BaseEnum;
     use protos::imports::importing_file::ImportingMessageBuilder;

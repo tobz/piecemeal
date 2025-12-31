@@ -552,12 +552,34 @@ impl Message {
     }
 
     fn write_common_uses<W: Write>(w: &mut W, messages: &[Message]) -> Result<()> {
-        if messages
-            .iter()
-            .filter(|m| !m.imported)
-            .any(|m| m.all_fields().any(|f| f.typ.is_map()))
-        {
-            writeln!(w, "use ::piecemeal::GenericMapBuilder;")?
+        // Check if any map has scalar values (uses GenericMapBuilder)
+        let has_scalar_value_maps = messages.iter().filter(|m| !m.imported).any(|m| {
+            m.all_fields().any(|f| {
+                if let Some((_, v)) = f.typ.map() {
+                    v.category() == FieldCategory::Scalar
+                } else {
+                    false
+                }
+            })
+        });
+
+        // Check if any map has message values (uses MessageMapBuilder)
+        let has_message_value_maps = messages.iter().filter(|m| !m.imported).any(|m| {
+            m.all_fields().any(|f| {
+                if let Some((_, v)) = f.typ.map() {
+                    v.category() == FieldCategory::Message
+                } else {
+                    false
+                }
+            })
+        });
+
+        if has_scalar_value_maps {
+            writeln!(w, "use ::piecemeal::GenericMapBuilder;")?;
+        }
+
+        if has_message_value_maps {
+            writeln!(w, "use ::piecemeal::MessageMapBuilder;")?;
         }
 
         if messages
@@ -640,6 +662,73 @@ impl Message {
         writeln!(w, "        self.writer.finish(output, true)")?;
         writeln!(w, "    }}")?;
         writeln!(w, "}}")?;
+
+        // Generate wrapper structs for message-value maps
+        for field in &self.fields {
+            if let Some((key_field_type, value_field_type)) = field.typ.map()
+                && value_field_type.category() == FieldCategory::Message
+            {
+                let key_typ = key_field_type.write_rust_type(desc);
+                let value_typ = value_field_type.struct_rust_type(desc);
+
+                writeln!(w)?;
+                writeln!(w, "/// Map builder wrapper for the `{}` field.", field.name)?;
+                writeln!(
+                    w,
+                    "pub struct {}_{}MapBuilder<'w, S: ScratchBuffer> {{",
+                    self.name, field.name
+                )?;
+                writeln!(
+                    w,
+                    "    inner: MessageMapBuilder<'w, S, {}, {}Builder<'w, S>>,",
+                    key_typ, value_typ
+                )?;
+                writeln!(w, "}}")?;
+                writeln!(w)?;
+                writeln!(
+                    w,
+                    "impl<'w, S: ScratchBuffer> {}_{}MapBuilder<'w, S> {{",
+                    self.name, field.name
+                )?;
+                writeln!(w, "    /// Writes an entry to the map.")?;
+                writeln!(
+                    w,
+                    "    pub fn write_entry<K, F>(&mut self, key: K, f: F) -> ProtoResult<()>"
+                )?;
+                writeln!(w, "    where")?;
+                writeln!(w, "        K: AsRef<{}>,", key_typ)?;
+                writeln!(
+                    w,
+                    "        F: for<'a> FnOnce(&mut {}Builder<'a, S>) -> ProtoResult<()>,",
+                    value_typ
+                )?;
+                writeln!(w, "    {{")?;
+                writeln!(w, "        let key_ref = key.as_ref();")?;
+                writeln!(w, "        let field_tag = self.inner.field_tag();")?;
+                writeln!(w, "        self.inner.writer().write_tag(field_tag)?;")?;
+                writeln!(
+                    w,
+                    "        self.inner.writer().track_message(move |writer| {{"
+                )?;
+                writeln!(w, "            key_ref.write_scalar(1, writer)?;")?;
+                writeln!(
+                    w,
+                    "            writer.write_tag(tag(2, WireType::LengthDelimited))?;"
+                )?;
+                writeln!(w, "            writer.track_message(move |sw| {{")?;
+                writeln!(
+                    w,
+                    "                let mut builder = {}Builder::new(sw);",
+                    value_typ
+                )?;
+                writeln!(w, "                f(&mut builder)")?;
+                writeln!(w, "            }})")?;
+                writeln!(w, "        }})")?;
+                writeln!(w, "    }}")?;
+                writeln!(w, "}}")?;
+            }
+        }
+
         Ok(())
     }
 
@@ -758,29 +847,56 @@ impl Message {
         field: &Field,
         desc: &FileDescriptor,
     ) -> Result<()> {
-        // TODO: We need to add logic to build field-specific map builders when there's a map field that has a key
-        // and/or value type where that type is a message and not just a scalar.
         let (key_field_type, value_field_type) = field.typ.map().expect("field should be a map");
-        if key_field_type.category() != FieldCategory::Scalar
-            || value_field_type.category() != FieldCategory::Scalar
-        {
-            unimplemented!("map builder for non-scalar key/value types does not yet exist");
+
+        // Map keys must always be scalar types per the protobuf spec
+        if key_field_type.category() != FieldCategory::Scalar {
+            return Err(Error::InvalidMessage(
+                "map keys must be scalar types".to_string(),
+            ));
         }
 
         let key_typ = key_field_type.write_rust_type(desc);
-        let value_typ = value_field_type.write_rust_type(desc);
 
-        writeln!(
-            w,
-            "    pub fn {}(&mut self) -> GenericMapBuilder<'_, S, {}, {}> {{",
-            field.name, key_typ, value_typ
-        )?;
-        writeln!(
-            w,
-            "        GenericMapBuilder::new({}, self.writer)",
-            field.tag()
-        )?;
-        writeln!(w, "    }}")?;
+        match value_field_type.category() {
+            FieldCategory::Scalar => {
+                // Scalar-to-scalar map: use GenericMapBuilder
+                let value_typ = value_field_type.write_rust_type(desc);
+                writeln!(
+                    w,
+                    "    pub fn {}(&mut self) -> GenericMapBuilder<'_, S, {}, {}> {{",
+                    field.name, key_typ, value_typ
+                )?;
+                writeln!(
+                    w,
+                    "        GenericMapBuilder::new({}, self.writer)",
+                    field.tag()
+                )?;
+                writeln!(w, "    }}")?;
+            }
+            FieldCategory::Message => {
+                // Scalar-to-message map: return MessageMapBuilder with concrete types
+                writeln!(
+                    w,
+                    "    pub fn {}(&mut self) -> {}_{}MapBuilder<'_, S> {{",
+                    field.name, self.name, field.name
+                )?;
+                writeln!(
+                    w,
+                    "        {}_{}MapBuilder {{ inner: MessageMapBuilder::new({}, self.writer) }}",
+                    self.name,
+                    field.name,
+                    field.tag()
+                )?;
+                writeln!(w, "    }}")?;
+            }
+            FieldCategory::Map => {
+                return Err(Error::InvalidMessage(
+                    "map values cannot be maps".to_string(),
+                ));
+            }
+        }
+
         Ok(())
     }
 
@@ -1536,7 +1652,7 @@ impl FileDescriptor {
 
         writeln!(
             w,
-            "use ::piecemeal::{{helpers::*, types::protobuf::*, ScratchBuffer, ScratchWriter, Writer, ProtoResult}};"
+            "use ::piecemeal::{{helpers::*, types::{{protobuf::*, WireType}}, MapScalar, ScratchBuffer, ScratchWriter, Writer, ProtoResult}};"
         )?;
         Ok(())
     }

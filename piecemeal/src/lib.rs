@@ -10,7 +10,7 @@ pub mod io;
 pub mod message;
 pub mod types;
 
-pub use crate::builder::{GenericMapBuilder, RepeatedBuilder};
+pub use crate::builder::{GenericMapBuilder, MapScalar, MessageMapBuilder, RepeatedBuilder};
 pub use crate::errors::{Error, ProtoResult};
 pub use crate::io::{
     scratch::{ScratchBuffer, ScratchWriter},
