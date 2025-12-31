@@ -7,8 +7,8 @@ mod protos {
 use self::protos::metrics_example::{MetricPayloadBuilder, metric_payload::AggregationType};
 
 fn main() {
-    let mut scratch_buf = Vec::with_capacity(1024);
-    let mut scratch_writer = ScratchWriter::new(&mut scratch_buf);
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
 
     let mut payload_builder = MetricPayloadBuilder::new(&mut scratch_writer);
     payload_builder

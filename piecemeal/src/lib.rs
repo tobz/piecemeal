@@ -1,7 +1,6 @@
 //! A library for generating Protocol Buffers messages in an incremental fashion.
 
 #![deny(missing_docs)]
-#![allow(dead_code)]
 
 pub mod builder;
 pub mod errors;

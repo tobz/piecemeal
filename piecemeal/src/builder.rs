@@ -135,39 +135,42 @@ map_scalar_impl!(from => [u8], sizeof_bytes, write_bytes);
 /// A map builder for maps with message values.
 ///
 /// Similar to [`GenericMapBuilder`], but for message value types.
-/// The `V` type parameter is a marker for the value builder type (used only for type inference).
 pub struct MessageMapBuilder<'w, S, K, V>
 where
     S: ScratchBuffer,
     K: MapScalar + ?Sized,
+    V: MessageBuilder<S>,
 {
     field_tag: u32,
     writer: &'w mut ScratchWriter<S>,
     _key_type: PhantomData<K>,
-    _value_builder: PhantomData<fn() -> V>,
+    _value_type: PhantomData<V>,
 }
 
 impl<'w, S, K, V> MessageMapBuilder<'w, S, K, V>
 where
     S: ScratchBuffer,
     K: MapScalar + ?Sized,
-    V: MessageBuilder,
+    V: MessageBuilder<S>,
 {
-    /// Creates a new `MessageMapBuilder` with the given field tag and scratch writer.
+    /// Creates a new `MessageMapBuilder` with the given field tag, scratch writer, and factory.
     pub fn new(field_tag: u32, writer: &'w mut ScratchWriter<S>) -> Self {
         Self {
             field_tag,
             writer,
             _key_type: PhantomData,
-            _value_builder: PhantomData,
+            _value_type: PhantomData,
         }
     }
 
-    /// Writes an entry to the map.
+    /// Writes an entry to the map using a callback.
+    ///
+    /// The callback receives a mutable reference to the value builder and should
+    /// populate the message fields.
     pub fn write_entry<K2, F>(&mut self, key: K2, f: F) -> ProtoResult<()>
     where
         K2: AsRef<K>,
-        F: FnOnce(&mut V) -> ProtoResult<()>,
+        F: FnOnce(&mut V::Builder<'_>) -> ProtoResult<()>,
     {
         let key_ref = key.as_ref();
         self.writer.write_tag(self.field_tag)?;

@@ -215,10 +215,6 @@ impl FieldType {
         )
     }
 
-    fn is_map(&self) -> bool {
-        matches!(*self, FieldType::Map(_, _))
-    }
-
     fn wire_type_num(&self, packed: bool) -> u32 {
         if packed {
             2
@@ -624,6 +620,8 @@ impl Message {
     }
 
     fn write_message_builder<W: Write>(&self, w: &mut W, desc: &FileDescriptor) -> Result<()> {
+        writeln!(w, "pub struct {};", self.name)?;
+        writeln!(w)?;
         writeln!(
             w,
             "pub struct {}Builder<'w, S: ScratchBuffer> {{",
@@ -663,71 +661,31 @@ impl Message {
         writeln!(w, "    }}")?;
         writeln!(w, "}}")?;
 
-        // Generate wrapper structs for message-value maps
-        for field in &self.fields {
-            if let Some((key_field_type, value_field_type)) = field.typ.map()
-                && value_field_type.category() == FieldCategory::Message
-            {
-                let key_typ = key_field_type.write_rust_type(desc);
-                let value_typ = value_field_type.struct_rust_type(desc);
-
-                writeln!(w)?;
-                writeln!(w, "/// Map builder wrapper for the `{}` field.", field.name)?;
-                writeln!(
-                    w,
-                    "pub struct {}_{}MapBuilder<'w, S: ScratchBuffer> {{",
-                    self.name, field.name
-                )?;
-                writeln!(
-                    w,
-                    "    inner: MessageMapBuilder<'w, S, {}, {}Builder<'w, S>>,",
-                    key_typ, value_typ
-                )?;
-                writeln!(w, "}}")?;
-                writeln!(w)?;
-                writeln!(
-                    w,
-                    "impl<'w, S: ScratchBuffer> {}_{}MapBuilder<'w, S> {{",
-                    self.name, field.name
-                )?;
-                writeln!(w, "    /// Writes an entry to the map.")?;
-                writeln!(
-                    w,
-                    "    pub fn write_entry<K, F>(&mut self, key: K, f: F) -> ProtoResult<()>"
-                )?;
-                writeln!(w, "    where")?;
-                writeln!(w, "        K: AsRef<{}>,", key_typ)?;
-                writeln!(
-                    w,
-                    "        F: for<'a> FnOnce(&mut {}Builder<'a, S>) -> ProtoResult<()>,",
-                    value_typ
-                )?;
-                writeln!(w, "    {{")?;
-                writeln!(w, "        let key_ref = key.as_ref();")?;
-                writeln!(w, "        let field_tag = self.inner.field_tag();")?;
-                writeln!(w, "        self.inner.writer().write_tag(field_tag)?;")?;
-                writeln!(
-                    w,
-                    "        self.inner.writer().track_message(move |writer| {{"
-                )?;
-                writeln!(w, "            key_ref.write_scalar(1, writer)?;")?;
-                writeln!(
-                    w,
-                    "            writer.write_tag(tag(2, WireType::LengthDelimited))?;"
-                )?;
-                writeln!(w, "            writer.track_message(move |sw| {{")?;
-                writeln!(
-                    w,
-                    "                let mut builder = {}Builder::new(sw);",
-                    value_typ
-                )?;
-                writeln!(w, "                f(&mut builder)")?;
-                writeln!(w, "            }})")?;
-                writeln!(w, "        }})")?;
-                writeln!(w, "    }}")?;
-                writeln!(w, "}}")?;
-            }
-        }
+        writeln!(w)?;
+        writeln!(
+            w,
+            "impl<S: ScratchBuffer> MessageBuilderBase<S> for {} {{",
+            self.name
+        )?;
+        writeln!(
+            w,
+            "    type Builder<'a> = {}Builder<'a, S> where S: 'a;",
+            self.name
+        )?;
+        writeln!(w, "}}")?;
+        writeln!(w)?;
+        writeln!(
+            w,
+            "impl<S: ScratchBuffer> MessageBuilder<S> for {} {{",
+            self.name
+        )?;
+        writeln!(
+            w,
+            "    fn from_writer<'w>(writer: &'w mut ScratchWriter<S>) -> Self::Builder<'w> {{"
+        )?;
+        writeln!(w, "        {}Builder::new(writer)", self.name)?;
+        writeln!(w, "    }}")?;
+        writeln!(w, "}}")?;
 
         Ok(())
     }
@@ -875,17 +833,16 @@ impl Message {
                 writeln!(w, "    }}")?;
             }
             FieldCategory::Message => {
-                // Scalar-to-message map: return MessageMapBuilder with concrete types
+                // Scalar-to-message map: return MessageMapBuilder with builder type
+                let value_typ = value_field_type.struct_rust_type(desc);
                 writeln!(
                     w,
-                    "    pub fn {}(&mut self) -> {}_{}MapBuilder<'_, S> {{",
-                    field.name, self.name, field.name
+                    "    pub fn {}(&mut self) -> MessageMapBuilder<'_, S, {}, {}> {{",
+                    field.name, key_typ, value_typ
                 )?;
                 writeln!(
                     w,
-                    "        {}_{}MapBuilder {{ inner: MessageMapBuilder::new({}, self.writer) }}",
-                    self.name,
-                    field.name,
+                    "        MessageMapBuilder::new({}, self.writer)",
                     field.tag()
                 )?;
                 writeln!(w, "    }}")?;
@@ -1652,7 +1609,7 @@ impl FileDescriptor {
 
         writeln!(
             w,
-            "use ::piecemeal::{{helpers::*, types::{{protobuf::*, WireType}}, MapScalar, ScratchBuffer, ScratchWriter, Writer, ProtoResult}};"
+            "use ::piecemeal::{{helpers::*, types::{{protobuf::*, MessageBuilderBase, MessageBuilder, WireType}}, MapScalar, ScratchBuffer, ScratchWriter, Writer, ProtoResult}};"
         )?;
         Ok(())
     }

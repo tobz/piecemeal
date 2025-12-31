@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package maps.map_scalar_message;
+
+message InnerMessage {
+    string name = 1;
+    int32 value = 2;
+}
+
+message MapScalarMessage {
+    map<string, InnerMessage> string_to_message = 1;
+}

@@ -33,16 +33,6 @@ impl ScratchBuffer for Vec<u8> {
     }
 }
 
-impl ScratchBuffer for &mut Vec<u8> {
-    fn clear(&mut self) {
-        Vec::clear(self);
-    }
-
-    fn as_slice(&self) -> &[u8] {
-        &self[..]
-    }
-}
-
 struct LengthMarker {
     offset: usize,
     len: u64,

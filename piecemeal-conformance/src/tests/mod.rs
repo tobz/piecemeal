@@ -11,8 +11,8 @@ use crate::protos;
 fn scalar_types_builder_works() {
     use protos::scalars::all_scalar_types::AllScalarTypesBuilder;
 
-    let mut scratch_buf = Vec::with_capacity(1024);
-    let mut scratch_writer = ScratchWriter::new(&mut scratch_buf);
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
 
     let mut builder = AllScalarTypesBuilder::new(&mut scratch_writer);
     builder
@@ -57,8 +57,8 @@ fn scalar_types_builder_works() {
 fn enum_builder_works() {
     use protos::enums::basic_enum::{MessageWithEnumBuilder, Status};
 
-    let mut scratch_buf = Vec::with_capacity(1024);
-    let mut scratch_writer = ScratchWriter::new(&mut scratch_buf);
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
 
     let mut builder = MessageWithEnumBuilder::new(&mut scratch_writer);
     builder
@@ -77,8 +77,8 @@ fn enum_builder_works() {
 fn nested_message_builder_works() {
     use protos::messages::nested_messages::OuterBuilder;
 
-    let mut scratch_buf = Vec::with_capacity(1024);
-    let mut scratch_writer = ScratchWriter::new(&mut scratch_buf);
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
 
     let mut builder = OuterBuilder::new(&mut scratch_writer);
     builder
@@ -103,8 +103,8 @@ fn nested_message_builder_works() {
 fn repeated_scalars_builder_works() {
     use protos::repeated::repeated_scalars::RepeatedScalarsBuilder;
 
-    let mut scratch_buf = Vec::with_capacity(1024);
-    let mut scratch_writer = ScratchWriter::new(&mut scratch_buf);
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
 
     let mut builder = RepeatedScalarsBuilder::new(&mut scratch_writer);
     builder
@@ -125,8 +125,8 @@ fn repeated_scalars_builder_works() {
 fn map_builder_works() {
     use protos::maps::map_scalar_scalar::MapScalarScalarBuilder;
 
-    let mut scratch_buf = Vec::with_capacity(1024);
-    let mut scratch_writer = ScratchWriter::new(&mut scratch_buf);
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
 
     let mut builder = MapScalarScalarBuilder::new(&mut scratch_writer);
     builder
@@ -148,8 +148,8 @@ fn map_builder_works() {
 fn map_with_message_value_builder_works() {
     use protos::maps::map_scalar_message::MapScalarMessageBuilder;
 
-    let mut scratch_buf = Vec::with_capacity(1024);
-    let mut scratch_writer = ScratchWriter::new(&mut scratch_buf);
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
 
     let mut builder = MapScalarMessageBuilder::new(&mut scratch_writer);
     builder
@@ -178,8 +178,8 @@ fn import_builder_works() {
     use protos::imports::base_types::BaseEnum;
     use protos::imports::importing_file::ImportingMessageBuilder;
 
-    let mut scratch_buf = Vec::with_capacity(1024);
-    let mut scratch_writer = ScratchWriter::new(&mut scratch_buf);
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
 
     let mut builder = ImportingMessageBuilder::new(&mut scratch_writer);
     builder
@@ -203,8 +203,8 @@ fn import_builder_works() {
 fn reserved_keywords_builder_works() {
     use protos::edge_cases::reserved_keywords::KeywordMessageBuilder;
 
-    let mut scratch_buf = Vec::with_capacity(1024);
-    let mut scratch_writer = ScratchWriter::new(&mut scratch_buf);
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
 
     let mut builder = KeywordMessageBuilder::new(&mut scratch_writer);
     // All these field names are Rust keywords - piecemeal escapes them with underscore suffix
