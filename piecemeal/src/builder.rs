@@ -190,6 +190,7 @@ where
 /// A repeated field builder.
 pub struct RepeatedBuilder<'w, S, T, V: ?Sized> {
     field_number: u32,
+    can_pack: bool,
     writer: &'w mut ScratchWriter<S>,
     _value_type: PhantomData<(T, V)>,
 }
@@ -201,9 +202,10 @@ where
     V: ?Sized,
 {
     /// Creates a new `RepeatedBuilder` with the given field number and scratch writer.
-    pub fn new(field_number: u32, writer: &'w mut ScratchWriter<S>) -> Self {
+    pub fn new(field_number: u32, can_pack: bool, writer: &'w mut ScratchWriter<S>) -> Self {
         Self {
             field_number,
+            can_pack,
             writer,
             _value_type: PhantomData,
         }
@@ -233,7 +235,7 @@ where
         F: Fn(IT) -> R,
         R: std::borrow::Borrow<V> + 'a,
     {
-        if T::packable() {
+        if T::packable() && self.can_pack {
             self.writer
                 .write_tag(tag(self.field_number, WireType::LengthDelimited))?;
             self.writer.track_message(|writer| {

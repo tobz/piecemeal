@@ -2,7 +2,7 @@
 
 use byteorder::{LittleEndian as LE, WriteBytesExt};
 
-use crate::{ProtoResult, message::MessageWrite, types::PackedFixed};
+use crate::ProtoResult;
 
 /// A Protocol Buffers-specific writer.
 ///
@@ -132,50 +132,6 @@ pub trait Writer {
         self.write_bytes(s.as_bytes())
     }
 
-    /// Writes packed repeated field: length first then the chunk of data
-    fn write_packed<M, F, S>(&mut self, v: &[M], mut write: F, size: &S) -> ProtoResult<()>
-    where
-        F: FnMut(&mut Self, &M) -> ProtoResult<()>,
-        S: Fn(&M) -> usize,
-        Self: Sized,
-    {
-        if v.is_empty() {
-            return Ok(());
-        }
-        let len: usize = v.iter().map(size).sum();
-        self.write_varint(len as u64)?;
-        for m in v {
-            write(self, m)?;
-        }
-        Ok(())
-    }
-
-    /// Writes packed repeated field when we know the size of items
-    ///
-    /// `item_size` is internally used to compute the total length
-    /// As the length is fixed (and the same as rust internal representation, we can directly dump
-    /// all data at once
-    fn write_packed_fixed<M: Copy + PartialEq>(&mut self, pf: &PackedFixed<M>) -> ProtoResult<()> {
-        let bytes = match pf {
-            PackedFixed::Borrowed(bytes) => bytes,
-            PackedFixed::Owned(contents) => {
-                let len = ::core::mem::size_of::<M>() * contents.len();
-                unsafe { ::core::slice::from_raw_parts(contents.as_ptr() as *const u8, len) }
-            }
-        };
-        self.write_bytes(bytes)
-    }
-
-    /// Writes a message which implements `MessageWrite`
-    fn write_message<M: MessageWrite>(&mut self, m: &M) -> ProtoResult<()>
-    where
-        Self: Sized,
-    {
-        let len = m.get_size();
-        self.write_varint(len as u64)?;
-        m.write_message(self)
-    }
-
     /// Writes another item prefixed with tag
     fn write_with_tag<F>(&mut self, tag: u32, mut write: F) -> ProtoResult<()>
     where
@@ -184,96 +140,6 @@ pub trait Writer {
     {
         self.write_tag(tag)?;
         write(self)
-    }
-
-    /// Writes tag then repeated field
-    ///
-    /// If array is empty, then do nothing (do not even write the tag)
-    fn write_packed_with_tag<M, F, S>(
-        &mut self,
-        tag: u32,
-        v: &[M],
-        mut write: F,
-        size: S,
-    ) -> ProtoResult<()>
-    where
-        F: FnMut(&mut Self, &M) -> ProtoResult<()>,
-        S: Fn(&M) -> usize,
-        Self: Sized,
-    {
-        if v.is_empty() {
-            return Ok(());
-        }
-
-        self.write_tag(tag)?;
-        let len: usize = v.iter().map(size).sum();
-        self.write_varint(len as u64)?;
-        for m in v {
-            write(self, m)?;
-        }
-        Ok(())
-    }
-
-    /// Writes tag then repeated field
-    ///
-    /// If array is empty, then do nothing (do not even write the tag)
-    fn write_packed_fixed_with_tag<M: Copy + PartialEq>(
-        &mut self,
-        tag: u32,
-        pf: &PackedFixed<M>,
-    ) -> ProtoResult<()> {
-        if pf.is_empty() {
-            return Ok(());
-        }
-
-        self.write_tag(tag)?;
-        self.write_packed_fixed(pf)
-    }
-
-    /// Writes tag then repeated field with fixed length item size
-    ///
-    /// If array is empty, then do nothing (do not even write the tag)
-    fn write_packed_fixed_size_with_tag<M: Copy + PartialEq>(
-        &mut self,
-        tag: u32,
-        pf: &PackedFixed<M>,
-        item_size: usize,
-    ) -> ProtoResult<()> {
-        if pf.is_empty() {
-            return Ok(());
-        }
-
-        self.write_tag(tag)?;
-
-        let len = ::core::mem::size_of::<M>() * item_size;
-        let bytes = match pf {
-            PackedFixed::Borrowed(bytes) => &bytes[0..len],
-            PackedFixed::Owned(contents) => unsafe {
-                ::core::slice::from_raw_parts(contents.as_ptr() as *const u8, len)
-            },
-        };
-        self.write_bytes(bytes)
-    }
-
-    /// Write entire map
-    fn write_map<FK, FV>(
-        &mut self,
-        size: usize,
-        tag_key: u32,
-        mut write_key: FK,
-        tag_val: u32,
-        mut write_val: FV,
-    ) -> ProtoResult<()>
-    where
-        FK: FnMut(&mut Self) -> ProtoResult<()>,
-        FV: FnMut(&mut Self) -> ProtoResult<()>,
-        Self: Sized,
-    {
-        self.write_varint(size as u64)?;
-        self.write_tag(tag_key)?;
-        write_key(self)?;
-        self.write_tag(tag_val)?;
-        write_val(self)
     }
 }
 

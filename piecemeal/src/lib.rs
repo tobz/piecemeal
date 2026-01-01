@@ -6,7 +6,6 @@ pub mod builder;
 pub mod errors;
 pub mod helpers;
 pub mod io;
-pub mod message;
 pub mod types;
 
 pub use crate::builder::{GenericMapBuilder, MapScalar, MessageMapBuilder, RepeatedBuilder};
@@ -15,4 +14,3 @@ pub use crate::io::{
     scratch::{ScratchBuffer, ScratchWriter},
     writer::Writer,
 };
-pub use crate::message::{MessageInfo, MessageWrite};

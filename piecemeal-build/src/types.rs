@@ -215,23 +215,9 @@ impl FieldType {
         )
     }
 
-    fn wire_type_num(&self, packed: bool) -> u32 {
-        if packed {
-            2
-        } else {
-            self.wire_type_num_non_packed()
-        }
-    }
-
-    fn wire_type_num_non_packed(&self) -> u32 {
-        /*
-        0	Varint	int32, int64, uint32, uint64, sint32, sint64, bool, enum
-        1	64-bit	fixed64, sfixed64, double
-        2	Length-delimited	string, bytes, embedded messages, packed repeated fields
-        3	Start group	groups (deprecated)
-        4	End group	groups (deprecated)
-        5	32-bit	fixed32, sfixed32, float
-        */
+    fn wire_type_num(&self) -> u32 {
+        // TODO: Extract this stuff to a common crate that can be shared between `piecemeal` and
+        // `piecemeal-build` so that we're not hard-coding constants and what not in two places.
         match *self {
             FieldType::Int32
             | FieldType::Sint32
@@ -429,9 +415,9 @@ impl FieldType {
             FieldType::Map(ref k, ref v) => format!(
                 "write_map({}, {}, |w| w.{}, {}, |w| w.{})",
                 self.get_size(""),
-                tag(1, k, false),
+                tag(1, k),
                 k.get_write("k", false),
-                tag(2, v, false),
+                tag(2, v),
                 v.get_write("v", false)
             ),
             FieldType::MessageOrEnum(_) => unreachable!("Message / Enum not resolved"),
@@ -457,7 +443,7 @@ impl Field {
     }
 
     fn tag(&self) -> u32 {
-        tag(self.number as u32, &self.typ, self.packed())
+        tag(self.number as u32, &self.typ)
     }
 }
 
@@ -728,8 +714,9 @@ impl Message {
             writeln!(w, "    {{")?;
             writeln!(
                 w,
-                "        let mut repeated_builder = RepeatedBuilder::new({}, self.writer);",
-                field.number
+                "        let mut repeated_builder = RepeatedBuilder::new({}, {},self.writer);",
+                field.number,
+                field.packed()
             )?;
             writeln!(w, "        f(&mut repeated_builder)?;")?;
             writeln!(w, "        Ok(self)")?;
@@ -828,7 +815,7 @@ impl Message {
                 writeln!(
                     w,
                     "        GenericMapBuilder::new({}, self.writer)",
-                    field.tag()
+                    field.number
                 )?;
                 writeln!(w, "    }}")?;
             }
@@ -843,7 +830,7 @@ impl Message {
                 writeln!(
                     w,
                     "        MessageMapBuilder::new({}, self.writer)",
-                    field.tag()
+                    field.number
                 )?;
                 writeln!(w, "    }}")?;
             }
@@ -1659,8 +1646,8 @@ impl FileDescriptor {
 }
 
 /// Calculates the tag value
-fn tag(number: u32, typ: &FieldType, packed: bool) -> u32 {
-    number << 3 | typ.wire_type_num(packed)
+fn tag(number: u32, typ: &FieldType) -> u32 {
+    number << 3 | typ.wire_type_num()
 }
 
 /// "" is ("",""), "a" is ("","a"), "a.b" is ("a"."b"), and so forth.
