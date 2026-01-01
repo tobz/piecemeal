@@ -30,7 +30,7 @@ pub const fn sizeof_varint(v: u64) -> usize {
 /// The total field length is equal to the number of bytes in the string plus the number of bytes for the varint-encoded
 /// string length.
 #[inline]
-pub fn sizeof_str(s: &str) -> usize {
+pub const fn sizeof_str(s: &str) -> usize {
     sizeof_len(s.len())
 }
 
@@ -116,28 +116,4 @@ pub const fn sizeof_f64(_: f64) -> usize {
 #[inline]
 pub const fn sizeof_enum(v: i32) -> usize {
     sizeof_int32(v)
-}
-
-/// A simple container for holding an owned or borrowed value.
-///
-/// While practically identical to `Cow`, this type has no requirements for `T` being `Clone`, and so can be used purely
-/// for generalizing over owned and borrowed variants of a value.
-pub enum Repeatable<'a, T> {
-    /// A single owned value.
-    Owned(T),
-
-    /// A single borrowed value.
-    Borrowed(&'a T),
-}
-
-impl<T> From<T> for Repeatable<'_, T> {
-    fn from(v: T) -> Self {
-        Repeatable::Owned(v)
-    }
-}
-
-impl<'a, T> From<&'a T> for Repeatable<'a, T> {
-    fn from(v: &'a T) -> Self {
-        Repeatable::Borrowed(v)
-    }
 }
