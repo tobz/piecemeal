@@ -4,6 +4,8 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
+use piecemeal::helpers::tag;
+use piecemeal::types::WireType;
 use tracing::{debug, warn};
 
 use crate::errors::{Error, Result};
@@ -215,9 +217,7 @@ impl FieldType {
         )
     }
 
-    fn wire_type_num(&self) -> u32 {
-        // TODO: Extract this stuff to a common crate that can be shared between `piecemeal` and
-        // `piecemeal-build` so that we're not hard-coding constants and what not in two places.
+    const fn wire_type(&self) -> WireType {
         match *self {
             FieldType::Int32
             | FieldType::Sint32
@@ -226,13 +226,13 @@ impl FieldType {
             | FieldType::Uint32
             | FieldType::Uint64
             | FieldType::Bool
-            | FieldType::Enum(_) => 0,
-            FieldType::Fixed64 | FieldType::Sfixed64 | FieldType::Double => 1,
+            | FieldType::Enum(_) => WireType::Varint,
+            FieldType::Fixed64 | FieldType::Sfixed64 | FieldType::Double => WireType::Fixed64,
             FieldType::String | FieldType::Bytes | FieldType::Message(_) | FieldType::Map(_, _) => {
-                2
+                WireType::LengthDelimited
             }
-            FieldType::Fixed32 | FieldType::Sfixed32 | FieldType::Float => 5,
-            FieldType::MessageOrEnum(_) => unreachable!("message / enum not resolved"),
+            FieldType::Fixed32 | FieldType::Sfixed32 | FieldType::Float => WireType::Fixed32,
+            FieldType::MessageOrEnum(_) => panic!("message / enum not resolved"),
         }
     }
 
@@ -240,7 +240,7 @@ impl FieldType {
     ///
     /// This is distinct from `proto_rust_type`, as it refers to the individual Protocol Buffers types, and not the
     /// condensed helper types (e.g., `Varint`, `Sfixed32`) that we use to encode writing logic into the type system.
-    fn proto_type(&self) -> &str {
+    const fn proto_type(&self) -> &'static str {
         match *self {
             FieldType::Int32 => "int32",
             FieldType::Sint32 => "sint32",
@@ -260,7 +260,7 @@ impl FieldType {
             FieldType::Bytes => "bytes",
             FieldType::Message(_) => "message",
             FieldType::Map(_, _) => "map",
-            FieldType::MessageOrEnum(_) => unreachable!("message / enum not resolved"),
+            FieldType::MessageOrEnum(_) => panic!("message / enum not resolved"),
         }
     }
 
@@ -268,7 +268,7 @@ impl FieldType {
     ///
     /// This is distinct from `proto_type`, as it refers to the condensed helper types (e.g., `Varint`, `Sfixed32`) that
     /// we use to encode writing logic into the type system, and not the Protocol Buffers types themselves.
-    fn proto_rust_type(&self) -> &str {
+    const fn proto_rust_type(&self) -> &'static str {
         match *self {
             FieldType::Bool
             | FieldType::Int32
@@ -283,8 +283,8 @@ impl FieldType {
             FieldType::Sfixed32 | FieldType::Float => "Sfixed32",
             FieldType::Sfixed64 | FieldType::Double => "Sfixed64",
             FieldType::String | FieldType::Bytes => "Bytes",
-            FieldType::MessageOrEnum(_) => unreachable!("message / enum not resolved"),
-            _ => unreachable!("not a scalar type"),
+            FieldType::MessageOrEnum(_) => panic!("message / enum not resolved"),
+            _ => panic!("not a scalar type"),
         }
     }
 
@@ -362,31 +362,6 @@ impl FieldType {
         }
     }
 
-    fn get_size(&self, s: &str) -> String {
-        match *self {
-            FieldType::Int32
-            | FieldType::Int64
-            | FieldType::Uint32
-            | FieldType::Uint64
-            | FieldType::Bool
-            | FieldType::Enum(_) => format!("sizeof_varint({} as u64)", s),
-            FieldType::Sint32 => format!("sizeof_sint32({})", s),
-            FieldType::Sint64 => format!("sizeof_sint64({})", s),
-
-            FieldType::Fixed64 | FieldType::Sfixed64 | FieldType::Double => "8".to_string(),
-            FieldType::Fixed32 | FieldType::Sfixed32 | FieldType::Float => "4".to_string(),
-
-            FieldType::String | FieldType::Bytes => format!("sizeof_len({}.len())", s),
-
-            FieldType::Message(_) => format!("sizeof_len({}.get_size())", s),
-
-            FieldType::Map(ref k, ref v) => {
-                format!("2 + {} + {}", k.get_size("k"), v.get_size("v"))
-            }
-            FieldType::MessageOrEnum(_) => unreachable!("Message / Enum not resolved"),
-        }
-    }
-
     fn get_write(&self, s: &str, needs_deref: bool) -> String {
         let with_deref = if needs_deref { "*" } else { "" };
         match *self {
@@ -409,18 +384,8 @@ impl FieldType {
             FieldType::String => format!("write_string({})", s),
             FieldType::Bytes => format!("write_bytes({})", s),
 
-            FieldType::Message(_) if needs_deref => format!("write_message(&*({}))", s),
-            FieldType::Message(_) => format!("write_message({})", s),
-
-            FieldType::Map(ref k, ref v) => format!(
-                "write_map({}, {}, |w| w.{}, {}, |w| w.{})",
-                self.get_size(""),
-                tag(1, k),
-                k.get_write("k", false),
-                tag(2, v),
-                v.get_write("v", false)
-            ),
-            FieldType::MessageOrEnum(_) => unreachable!("Message / Enum not resolved"),
+            FieldType::MessageOrEnum(_) => unreachable!("message / enum not resolved"),
+            _ => unreachable!("not a scalar type"),
         }
     }
 }
@@ -430,7 +395,7 @@ pub struct Field {
     pub name: String,
     pub frequency: Frequency,
     pub typ: FieldType,
-    pub number: i32,
+    pub number: u32,
     pub default: Option<String>,
     pub packed: Option<bool>,
     pub boxed: bool,
@@ -443,7 +408,7 @@ impl Field {
     }
 
     fn tag(&self) -> u32 {
-        tag(self.number as u32, &self.typ)
+        tag(self.number, self.typ.wire_type())
     }
 }
 
@@ -475,7 +440,7 @@ pub struct Message {
     pub name: String,
     pub fields: Vec<Field>,
     pub oneofs: Vec<OneOf>,
-    pub reserved_nums: Option<Vec<i32>>,
+    pub reserved_nums: Option<Vec<u32>>,
     pub reserved_names: Option<Vec<String>>,
     pub imported: bool,
     pub package: String,        // package from imports + nested items
@@ -953,15 +918,15 @@ impl Message {
 
 #[derive(Debug, Clone, Default)]
 pub struct Extensions {
-    pub from: i32,
+    pub from: u32,
     /// Max number is 536,870,911 (2^29 - 1), as defined in the
     /// protobuf docs
-    pub to: i32,
+    pub to: u32,
 }
 
 impl Extensions {
     /// The max field number that can be used as an extension.
-    pub fn max() -> i32 {
+    pub fn max() -> u32 {
         536870911
     }
 }
@@ -1643,11 +1608,6 @@ impl FileDescriptor {
         }
         Ok(())
     }
-}
-
-/// Calculates the tag value
-fn tag(number: u32, typ: &FieldType) -> u32 {
-    number << 3 | typ.wire_type_num()
 }
 
 /// "" is ("",""), "a" is ("","a"), "a.b" is ("a"."b"), and so forth.

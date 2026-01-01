@@ -32,7 +32,7 @@ enum MessageEvent {
     Message(Message),
     Enumerator(Enumerator),
     Field(Field),
-    ReservedNums(Vec<i32>),
+    ReservedNums(Vec<u32>),
     ReservedNames(Vec<String>),
     OneOf(OneOf),
     Extensions(Extensions),
@@ -85,14 +85,25 @@ fn word(input: &str) -> IResult<&str, String> {
     map(word_ref, |word| word.to_owned())(input)
 }
 
-fn hex_integer(input: &str) -> IResult<&str, i32> {
+fn hex_uint32(input: &str) -> IResult<&str, u32> {
+    preceded(
+        tag("0x"),
+        map_res(hex_digit1, |s: &str| u32::from_str_radix(s, 16)),
+    )(input)
+}
+
+fn uint32(input: &str) -> IResult<&str, u32> {
+    map_res(digit1, |s: &str| s.parse())(input)
+}
+
+fn hex_int32(input: &str) -> IResult<&str, i32> {
     preceded(
         tag("0x"),
         map_res(hex_digit1, |s: &str| i32::from_str_radix(s, 16)),
     )(input)
 }
 
-fn integer(input: &str) -> IResult<&str, i32> {
+fn int32(input: &str) -> IResult<&str, i32> {
     map_res(digit1, |s: &str| s.parse())(input)
 }
 
@@ -151,7 +162,7 @@ fn extensions(input: &str) -> IResult<&str, Extensions> {
         delimited(
             pair(tag("extensions"), many1(br)),
             pair(
-                integer,
+                uint32,
                 preceded(pair(many0(br), pair(tag("to"), many1(br))), take_until(";")),
             ),
             tag(";"),
@@ -169,20 +180,20 @@ fn extensions(input: &str) -> IResult<&str, Extensions> {
     )(input)
 }
 
-fn num_range(input: &str) -> IResult<&str, Vec<i32>> {
+fn num_range(input: &str) -> IResult<&str, Vec<u32>> {
     map(
-        separated_pair(integer, tuple((many1(br), tag("to"), many1(br))), integer),
+        separated_pair(uint32, tuple((many1(br), tag("to"), many1(br))), uint32),
         |(from_, to)| (from_..=to).collect(),
     )(input)
 }
 
-fn reserved_nums(input: &str) -> IResult<&str, Vec<i32>> {
+fn reserved_nums(input: &str) -> IResult<&str, Vec<u32>> {
     map(
         delimited(
             pair(tag("reserved"), many1(br)),
             separated_list1(
                 tuple((many0(br), tag(","), many0(br))),
-                alt((num_range, map(integer, |i| vec![i]))),
+                alt((num_range, map(uint32, |i| vec![i]))),
             ),
             pair(many0(br), tag(";")),
         ),
@@ -329,7 +340,7 @@ where
                 separated_pair(
                     word,
                     delimited(many0(br), tag("="), many0(br)),
-                    alt((integer, hex_integer)),
+                    alt((uint32, hex_uint32)),
                 ),
                 delimited(many0(br), many0(key_val), pair(many0(br), tag(";"))),
             )),
@@ -496,7 +507,7 @@ fn enum_field(input: &str) -> IResult<&str, (String, i32)> {
         separated_pair(
             word,
             tuple((many0(br), tag("="), many0(br))),
-            alt((hex_integer, integer)),
+            alt((hex_int32, int32)),
         ),
         pair(
             many0(alt((
