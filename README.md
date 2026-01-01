@@ -117,4 +117,4 @@ normally be required to generate a Protocol Buffers message incrementally.
 - [x] map fields with scalar keys and complex (message) values
 - [x] enums
 - [ ] oneof fields
-- [ ] packed types
+- [x] packed types

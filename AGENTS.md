@@ -51,7 +51,7 @@ cargo check          # Type check only
 
 **Supported:**
 - Non-nested and nested messages
-- Repeated fields (streaming serialization)
+- Repeated fields (including packed)
 - Enums
 - Map fields with scalar keys/values
 - Proto2 and Proto3 syntax
@@ -59,7 +59,6 @@ cargo check          # Type check only
 **Not supported:**
 - Map fields with message values
 - Oneof fields
-- Packed repeated fields
 - Deserialization
 
 ## Generated Code Pattern
