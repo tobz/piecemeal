@@ -27,6 +27,19 @@ fn to_snake_case(s: &str) -> String {
     result
 }
 
+/// Converts a snake_case string to PascalCase.
+fn to_pascal_case(s: &str) -> String {
+    s.split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().chain(chars).collect(),
+            }
+        })
+        .collect()
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Syntax {
     #[default]
@@ -474,6 +487,11 @@ impl Message {
 
         self.write_message_builder(w, desc)?;
 
+        // Write oneof builders for this message
+        for oneof in &self.oneofs {
+            self.write_oneof_builder(w, oneof, desc)?;
+        }
+
         if !(self.messages.is_empty() && self.enums.is_empty()) {
             writeln!(w)?;
             writeln!(w, "pub mod {} {{", to_snake_case(&self.name))?;
@@ -523,6 +541,9 @@ impl Message {
         for field in &self.fields {
             writeln!(w)?;
             self.write_message_builder_field(w, field, desc)?;
+        }
+        for oneof in &self.oneofs {
+            self.write_message_builder_oneof(w, oneof, desc)?;
         }
         writeln!(w)?;
         writeln!(
@@ -737,14 +758,153 @@ impl Message {
         Ok(())
     }
 
-    fn sanity_checks(&self, desc: &FileDescriptor) -> Result<()> {
-        // We don't yet support oneof fields.
-        if !self.oneofs.is_empty() {
-            return Err(Error::InvalidMessage(
-                "oneof fields are not yet supported".to_string(),
-            ));
+    fn write_oneof_builder<W: Write>(
+        &self,
+        w: &mut W,
+        oneof: &OneOf,
+        desc: &FileDescriptor,
+    ) -> Result<()> {
+        let builder_name = oneof.builder_name();
+
+        // Write the builder struct
+        writeln!(w)?;
+        writeln!(w, "pub struct {}<'w, S: ScratchBuffer> {{", builder_name)?;
+        writeln!(w, "    writer: &'w mut ScratchWriter<S>")?;
+        writeln!(w, "}}")?;
+        writeln!(w)?;
+
+        // Write the impl block
+        writeln!(w, "impl<'w, S: ScratchBuffer> {}<'w, S> {{", builder_name)?;
+        writeln!(
+            w,
+            "    pub fn new(writer: &'w mut ScratchWriter<S>) -> Self {{"
+        )?;
+        writeln!(w, "        Self {{ writer }}")?;
+        writeln!(w, "    }}")?;
+
+        // Write variant methods
+        for field in &oneof.fields {
+            writeln!(w)?;
+            self.write_oneof_variant_method(w, field, desc)?;
         }
 
+        writeln!(w, "}}")?;
+
+        Ok(())
+    }
+
+    fn write_oneof_variant_method<W: Write>(
+        &self,
+        w: &mut W,
+        field: &Field,
+        desc: &FileDescriptor,
+    ) -> Result<()> {
+        match field.typ.category() {
+            FieldCategory::Scalar => self.write_oneof_variant_scalar(w, field, desc),
+            FieldCategory::Message => self.write_oneof_variant_message(w, field, desc),
+            FieldCategory::Map => Err(Error::InvalidMessage(
+                "map fields are not allowed in oneof".to_string(),
+            )),
+        }
+    }
+
+    fn write_oneof_variant_scalar<W: Write>(
+        &self,
+        w: &mut W,
+        field: &Field,
+        desc: &FileDescriptor,
+    ) -> Result<()> {
+        let value_typ = field.typ.write_rust_type(desc);
+        let value_typ = if !field.typ.is_primitive() {
+            format!("&{}", value_typ)
+        } else {
+            value_typ.to_string()
+        };
+
+        writeln!(
+            w,
+            "    pub fn {}(&mut self, value: {}) -> ProtoResult<()> {{",
+            field.name, value_typ
+        )?;
+        writeln!(
+            w,
+            "        self.writer.write_with_tag({}, |w| w.{})",
+            field.tag(),
+            field.typ.get_write("value", false)
+        )?;
+        writeln!(w, "    }}")?;
+
+        Ok(())
+    }
+
+    fn write_oneof_variant_message<W: Write>(
+        &self,
+        w: &mut W,
+        field: &Field,
+        desc: &FileDescriptor,
+    ) -> Result<()> {
+        let typ = field.typ.struct_rust_type(desc);
+
+        writeln!(
+            w,
+            "    pub fn {}<F>(&mut self, f: F) -> ProtoResult<()>",
+            field.name
+        )?;
+        writeln!(w, "    where")?;
+        writeln!(
+            w,
+            "        F: for<'a> FnOnce(&mut {}Builder<'a, S>) -> ProtoResult<()>",
+            typ
+        )?;
+        writeln!(w, "    {{")?;
+        writeln!(w, "        self.writer.write_tag({})?;", field.tag())?;
+        writeln!(w, "        self.writer.track_message(|sw| {{")?;
+        writeln!(
+            w,
+            "            let mut msg_builder = {}Builder::new(sw);",
+            typ
+        )?;
+        writeln!(w, "            f(&mut msg_builder)")?;
+        writeln!(w, "        }})")?;
+        writeln!(w, "    }}")?;
+
+        Ok(())
+    }
+
+    fn write_message_builder_oneof<W: Write>(
+        &self,
+        w: &mut W,
+        oneof: &OneOf,
+        _desc: &FileDescriptor,
+    ) -> Result<()> {
+        let builder_name = oneof.builder_name();
+
+        writeln!(w)?;
+        writeln!(
+            w,
+            "    pub fn {}<F>(&mut self, f: F) -> ProtoResult<&mut Self>",
+            oneof.name
+        )?;
+        writeln!(w, "    where")?;
+        writeln!(
+            w,
+            "        F: FnOnce(&mut {}<'_, S>) -> ProtoResult<()>,",
+            builder_name
+        )?;
+        writeln!(w, "    {{")?;
+        writeln!(
+            w,
+            "        let mut oneof_builder = {}::new(self.writer);",
+            builder_name
+        )?;
+        writeln!(w, "        f(&mut oneof_builder)?;")?;
+        writeln!(w, "        Ok(self)")?;
+        writeln!(w, "    }}")?;
+
+        Ok(())
+    }
+
+    fn sanity_checks(&self, desc: &FileDescriptor) -> Result<()> {
         for f in self.all_fields() {
             // check reserved
             if self
@@ -807,6 +967,10 @@ impl Message {
         for m in &mut self.enums {
             m.set_package(&child_package, &child_module);
         }
+        for o in &mut self.oneofs {
+            o.package = self.package.clone();
+            o.module = self.module.clone();
+        }
     }
 
     fn set_repeated_as_packed(&mut self) {
@@ -823,6 +987,12 @@ impl Message {
         for f in self.fields.iter_mut() {
             sanitize_keyword(&mut f.name);
         }
+        for o in &mut self.oneofs {
+            sanitize_keyword(&mut o.name);
+            for f in o.fields.iter_mut() {
+                sanitize_keyword(&mut f.name);
+            }
+        }
         for m in &mut self.messages {
             m.sanitize_names();
         }
@@ -834,13 +1004,17 @@ impl Message {
     /// Return an iterator producing references to all the `Field`s of `self`,
     /// including both direct and `oneof` fields.
     pub fn all_fields(&self) -> impl Iterator<Item = &Field> {
-        self.fields.iter()
+        self.fields
+            .iter()
+            .chain(self.oneofs.iter().flat_map(|o| o.fields.iter()))
     }
 
     /// Return an iterator producing mutable references to all the `Field`s of
     /// `self`, including both direct and `oneof` fields.
     fn all_fields_mut(&mut self) -> impl Iterator<Item = &mut Field> {
-        self.fields.iter_mut()
+        self.fields
+            .iter_mut()
+            .chain(self.oneofs.iter_mut().flat_map(|o| o.fields.iter_mut()))
     }
 }
 
@@ -980,6 +1154,13 @@ pub struct OneOf {
     pub package: String,
     pub module: String,
     pub imported: bool,
+}
+
+impl OneOf {
+    /// Returns the builder struct name for this oneof (e.g., "MyPayloadOneOfBuilder").
+    fn builder_name(&self) -> String {
+        format!("{}OneOfBuilder", to_pascal_case(&self.name))
+    }
 }
 
 pub struct Config {
@@ -1286,6 +1467,7 @@ impl FileDescriptor {
             'types: for typ in m
                 .fields
                 .iter_mut()
+                .chain(m.oneofs.iter_mut().flat_map(|o| o.fields.iter_mut()))
                 .map(|f| &mut f.typ)
                 .flat_map(|typ| match *typ {
                     FieldType::Map(ref mut key, ref mut value) => {

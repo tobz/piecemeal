@@ -74,6 +74,93 @@ fn enum_builder_works() {
 }
 
 #[test]
+fn oneof_scalar_variant_works() {
+    use protos::oneofs::basic_oneof::MessageWithOneofBuilder;
+
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
+
+    let mut builder = MessageWithOneofBuilder::new(&mut scratch_writer);
+    builder
+        .name("test")
+        .unwrap()
+        .payload(|p| p.text_value("hello"))
+        .unwrap()
+        .other_field(42)
+        .unwrap();
+
+    let mut output = Vec::new();
+    builder.finish(&mut output).unwrap();
+
+    assert!(!output.is_empty());
+}
+
+#[test]
+fn oneof_int_variant_works() {
+    use protos::oneofs::basic_oneof::MessageWithOneofBuilder;
+
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
+
+    let mut builder = MessageWithOneofBuilder::new(&mut scratch_writer);
+    builder
+        .name("test")
+        .unwrap()
+        .payload(|p| p.int_value(12345))
+        .unwrap();
+
+    let mut output = Vec::new();
+    builder.finish(&mut output).unwrap();
+
+    assert!(!output.is_empty());
+}
+
+#[test]
+fn oneof_message_variant_works() {
+    use protos::oneofs::basic_oneof::MessageWithOneofBuilder;
+
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
+
+    let mut builder = MessageWithOneofBuilder::new(&mut scratch_writer);
+    builder
+        .name("test")
+        .unwrap()
+        .payload(|p| {
+            p.message_value(|m| {
+                m.value("inner")?.count(10)?;
+                Ok(())
+            })
+        })
+        .unwrap();
+
+    let mut output = Vec::new();
+    builder.finish(&mut output).unwrap();
+
+    assert!(!output.is_empty());
+}
+
+#[test]
+fn multiple_oneofs_work() {
+    use protos::oneofs::basic_oneof::MessageWithMultipleOneofsBuilder;
+
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
+
+    let mut builder = MessageWithMultipleOneofsBuilder::new(&mut scratch_writer);
+    builder
+        .first_choice(|c| c.option_a("chosen"))
+        .unwrap()
+        .second_choice(|c| c.amount(3.14))
+        .unwrap();
+
+    let mut output = Vec::new();
+    builder.finish(&mut output).unwrap();
+
+    assert!(!output.is_empty());
+}
+
+#[test]
 fn nested_message_builder_works() {
     use protos::messages::nested_messages::OuterBuilder;
 

@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package oneofs.basic_oneof;
+
+message InnerMessage {
+    string value = 1;
+    int32 count = 2;
+}
+
+message MessageWithOneof {
+    string name = 1;
+
+    oneof payload {
+        string text_value = 2;
+        int32 int_value = 3;
+        bool bool_value = 4;
+        InnerMessage message_value = 5;
+    }
+
+    int32 other_field = 6;
+}
+
+// Test multiple oneofs in same message
+message MessageWithMultipleOneofs {
+    oneof first_choice {
+        string option_a = 1;
+        int32 option_b = 2;
+    }
+
+    oneof second_choice {
+        bool flag = 3;
+        double amount = 4;
+    }
+}
