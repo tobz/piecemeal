@@ -1,10 +1,8 @@
-[cargo]
-binstall = true
-
 [tools]
 "cargo:cargo-binstall" = "latest"
 "cargo:cargo-llvm-cov" = "latest"
 "cargo:cargo-nextest" = "latest"
+"aqua:protoc" = "33.2"
 
 [tasks.build]
 description = "Build all workspace crates"
