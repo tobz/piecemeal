@@ -1,14 +1,17 @@
 //! Runtime tests for generated builders.
 //!
-//! These tests verify that the generated code not only compiles but also
-//! works correctly at runtime.
+//! These tests verify that the generated code not only compiles but also works correctly at runtime. They use `prost`
+//! to decode the `piecemeal`-encoded bytes and verify that the decoded values match the original inputs.
 
 use piecemeal::ScratchWriter;
+use prost::Message;
 
+use crate::prost_protos;
 use crate::protos;
 
 #[test]
-fn scalar_types_builder_works() {
+fn scalar_types_roundtrip() {
+    use prost_protos::scalars::all_scalar_types::AllScalarTypes;
     use protos::scalars::all_scalar_types::AllScalarTypesBuilder;
 
     let scratch_buf = Vec::with_capacity(1024);
@@ -50,11 +53,29 @@ fn scalar_types_builder_works() {
     let mut output = Vec::new();
     builder.finish(&mut output).unwrap();
 
-    assert!(!output.is_empty(), "serialized output should not be empty");
+    // Decode with prost and verify
+    let decoded = AllScalarTypes::decode(output.as_slice()).unwrap();
+
+    assert_eq!(decoded.int32_field, 42);
+    assert_eq!(decoded.int64_field, 123456789);
+    assert_eq!(decoded.uint32_field, 100);
+    assert_eq!(decoded.uint64_field, 200);
+    assert_eq!(decoded.sint32_field, -50);
+    assert_eq!(decoded.sint64_field, -100);
+    assert!(decoded.bool_field);
+    assert_eq!(decoded.fixed32_field, 1000);
+    assert_eq!(decoded.fixed64_field, 2000);
+    assert_eq!(decoded.sfixed32_field, -500);
+    assert_eq!(decoded.sfixed64_field, -1000);
+    assert_eq!(decoded.float_field, 3.125);
+    assert_eq!(decoded.double_field, 2.625);
+    assert_eq!(decoded.string_field, "hello");
+    assert_eq!(decoded.bytes_field, vec![1, 2, 3, 4]);
 }
 
 #[test]
-fn enum_builder_works() {
+fn enum_roundtrip() {
+    use prost_protos::enums::basic_enum::MessageWithEnum;
     use protos::enums::basic_enum::{MessageWithEnumBuilder, Status};
 
     let scratch_buf = Vec::with_capacity(1024);
@@ -70,11 +91,15 @@ fn enum_builder_works() {
     let mut output = Vec::new();
     builder.finish(&mut output).unwrap();
 
-    assert!(!output.is_empty());
+    let decoded = MessageWithEnum::decode(output.as_slice()).unwrap();
+
+    assert_eq!(decoded.status, 1); // ACTIVE = 1
+    assert_eq!(decoded.name, "test");
 }
 
 #[test]
-fn oneof_scalar_variant_works() {
+fn oneof_scalar_variant_roundtrip() {
+    use prost_protos::oneofs::basic_oneof::{MessageWithOneof, message_with_oneof::Payload};
     use protos::oneofs::basic_oneof::MessageWithOneofBuilder;
 
     let scratch_buf = Vec::with_capacity(1024);
@@ -92,11 +117,16 @@ fn oneof_scalar_variant_works() {
     let mut output = Vec::new();
     builder.finish(&mut output).unwrap();
 
-    assert!(!output.is_empty());
+    let decoded = MessageWithOneof::decode(output.as_slice()).unwrap();
+
+    assert_eq!(decoded.name, "test");
+    assert_eq!(decoded.other_field, 42);
+    assert!(matches!(decoded.payload, Some(Payload::TextValue(ref s)) if s == "hello"));
 }
 
 #[test]
-fn oneof_int_variant_works() {
+fn oneof_int_variant_roundtrip() {
+    use prost_protos::oneofs::basic_oneof::{MessageWithOneof, message_with_oneof::Payload};
     use protos::oneofs::basic_oneof::MessageWithOneofBuilder;
 
     let scratch_buf = Vec::with_capacity(1024);
@@ -112,11 +142,15 @@ fn oneof_int_variant_works() {
     let mut output = Vec::new();
     builder.finish(&mut output).unwrap();
 
-    assert!(!output.is_empty());
+    let decoded = MessageWithOneof::decode(output.as_slice()).unwrap();
+
+    assert_eq!(decoded.name, "test");
+    assert!(matches!(decoded.payload, Some(Payload::IntValue(12345))));
 }
 
 #[test]
-fn oneof_message_variant_works() {
+fn oneof_message_variant_roundtrip() {
+    use prost_protos::oneofs::basic_oneof::{MessageWithOneof, message_with_oneof::Payload};
     use protos::oneofs::basic_oneof::MessageWithOneofBuilder;
 
     let scratch_buf = Vec::with_capacity(1024);
@@ -137,11 +171,24 @@ fn oneof_message_variant_works() {
     let mut output = Vec::new();
     builder.finish(&mut output).unwrap();
 
-    assert!(!output.is_empty());
+    let decoded = MessageWithOneof::decode(output.as_slice()).unwrap();
+
+    assert_eq!(decoded.name, "test");
+    match decoded.payload {
+        Some(Payload::MessageValue(inner)) => {
+            assert_eq!(inner.value, "inner");
+            assert_eq!(inner.count, 10);
+        }
+        _ => panic!("Expected MessageValue variant"),
+    }
 }
 
 #[test]
-fn multiple_oneofs_work() {
+fn multiple_oneofs_roundtrip() {
+    use prost_protos::oneofs::basic_oneof::{
+        MessageWithMultipleOneofs,
+        message_with_multiple_oneofs::{FirstChoice, SecondChoice},
+    };
     use protos::oneofs::basic_oneof::MessageWithMultipleOneofsBuilder;
 
     let scratch_buf = Vec::with_capacity(1024);
@@ -151,17 +198,23 @@ fn multiple_oneofs_work() {
     builder
         .first_choice(|c| c.option_a("chosen"))
         .unwrap()
-        .second_choice(|c| c.amount(3.14))
+        .second_choice(|c| c.amount(123.456))
         .unwrap();
 
     let mut output = Vec::new();
     builder.finish(&mut output).unwrap();
 
-    assert!(!output.is_empty());
+    let decoded = MessageWithMultipleOneofs::decode(output.as_slice()).unwrap();
+
+    assert!(matches!(decoded.first_choice, Some(FirstChoice::OptionA(ref s)) if s == "chosen"));
+    assert!(
+        matches!(decoded.second_choice, Some(SecondChoice::Amount(v)) if (v - 123.456).abs() < 0.001)
+    );
 }
 
 #[test]
-fn nested_message_builder_works() {
+fn nested_message_roundtrip() {
+    use prost_protos::messages::nested_messages::Outer;
     use protos::messages::nested_messages::OuterBuilder;
 
     let scratch_buf = Vec::with_capacity(1024);
@@ -183,11 +236,19 @@ fn nested_message_builder_works() {
     let mut output = Vec::new();
     builder.finish(&mut output).unwrap();
 
-    assert!(!output.is_empty());
+    let decoded = Outer::decode(output.as_slice()).unwrap();
+
+    assert_eq!(decoded.name, "outer");
+    let middle = decoded.middle.expect("middle should be set");
+    assert_eq!(middle.label, "middle");
+    let inner = middle.inner.expect("inner should be set");
+    assert_eq!(inner.value, "inner_value");
+    assert_eq!(inner.count, 42);
 }
 
 #[test]
-fn repeated_scalars_builder_works() {
+fn repeated_scalars_roundtrip() {
+    use prost_protos::repeated::repeated_scalars::RepeatedScalars;
     use protos::repeated::repeated_scalars::RepeatedScalarsBuilder;
 
     let scratch_buf = Vec::with_capacity(1024);
@@ -205,11 +266,16 @@ fn repeated_scalars_builder_works() {
     let mut output = Vec::new();
     builder.finish(&mut output).unwrap();
 
-    assert!(!output.is_empty());
+    let decoded = RepeatedScalars::decode(output.as_slice()).unwrap();
+
+    assert_eq!(decoded.int32_values, vec![1, 2, 3]);
+    assert_eq!(decoded.string_values, vec!["a", "b", "c"]);
+    assert_eq!(decoded.double_values, vec![1.0, 2.0, 3.0]);
 }
 
 #[test]
-fn map_builder_works() {
+fn map_roundtrip() {
+    use prost_protos::maps::map_scalar_scalar::MapScalarScalar;
     use protos::maps::map_scalar_scalar::MapScalarScalarBuilder;
 
     let scratch_buf = Vec::with_capacity(1024);
@@ -228,11 +294,22 @@ fn map_builder_works() {
     let mut output = Vec::new();
     builder.finish(&mut output).unwrap();
 
-    assert!(!output.is_empty());
+    let decoded = MapScalarScalar::decode(output.as_slice()).unwrap();
+
+    assert_eq!(decoded.string_to_string.len(), 2);
+    assert_eq!(
+        decoded.string_to_string.get("key1"),
+        Some(&"value1".to_string())
+    );
+    assert_eq!(
+        decoded.string_to_string.get("key2"),
+        Some(&"value2".to_string())
+    );
 }
 
 #[test]
-fn map_with_message_value_builder_works() {
+fn map_with_message_value_roundtrip() {
+    use prost_protos::maps::map_scalar_message::MapScalarMessage;
     use protos::maps::map_scalar_message::MapScalarMessageBuilder;
 
     let scratch_buf = Vec::with_capacity(1024);
@@ -257,11 +334,26 @@ fn map_with_message_value_builder_works() {
     let mut output = Vec::new();
     builder.finish(&mut output).unwrap();
 
-    assert!(!output.is_empty());
+    let decoded = MapScalarMessage::decode(output.as_slice()).unwrap();
+
+    assert_eq!(decoded.string_to_message.len(), 2);
+    let entry1 = decoded
+        .string_to_message
+        .get("key1")
+        .expect("key1 should exist");
+    assert_eq!(entry1.name, "test_name");
+    assert_eq!(entry1.value, 42);
+    let entry2 = decoded
+        .string_to_message
+        .get("key2")
+        .expect("key2 should exist");
+    assert_eq!(entry2.name, "another_name");
+    assert_eq!(entry2.value, 100);
 }
 
 #[test]
-fn import_builder_works() {
+fn import_roundtrip() {
+    use prost_protos::imports::importing_file::ImportingMessage;
     use protos::imports::base_types::BaseEnum;
     use protos::imports::importing_file::ImportingMessageBuilder;
 
@@ -283,11 +375,18 @@ fn import_builder_works() {
     let mut output = Vec::new();
     builder.finish(&mut output).unwrap();
 
-    assert!(!output.is_empty());
+    let decoded = ImportingMessage::decode(output.as_slice()).unwrap();
+
+    assert_eq!(decoded.extra_field, "extra");
+    assert_eq!(decoded.status, 1); // BASE_VALUE_ONE = 1
+    let base = decoded.base.expect("base should be set");
+    assert_eq!(base.id, "id-123");
+    assert_eq!(base.timestamp, 1234567890);
 }
 
 #[test]
-fn reserved_keywords_builder_works() {
+fn reserved_keywords_roundtrip() {
+    use prost_protos::edge_cases::reserved_keywords::KeywordMessage;
     use protos::edge_cases::reserved_keywords::KeywordMessageBuilder;
 
     let scratch_buf = Vec::with_capacity(1024);
@@ -318,5 +417,16 @@ fn reserved_keywords_builder_works() {
     let mut output = Vec::new();
     builder.finish(&mut output).unwrap();
 
-    assert!(!output.is_empty());
+    let decoded = KeywordMessage::decode(output.as_slice()).unwrap();
+
+    // Prost uses r#keyword syntax for reserved keywords
+    assert_eq!(decoded.r#type, "a type");
+    assert_eq!(decoded.r#match, 42);
+    assert_eq!(decoded.self_, "self value"); // self and crate can't use r# syntax
+    assert_eq!(decoded.r#mod, 100);
+    assert_eq!(decoded.r#fn, 200);
+    assert_eq!(decoded.r#impl, "impl value");
+    assert!(!decoded.r#pub);
+    assert_eq!(decoded.r#use, 300);
+    assert_eq!(decoded.crate_, "crate value"); // self and crate can't use r# syntax
 }

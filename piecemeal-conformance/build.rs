@@ -5,9 +5,9 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=protos");
 
-    let out_directory = PathBuf::from(std::env::var("OUT_DIR").unwrap())
-        .join("protos")
-        .join("piecemeal");
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let piecemeal_out = out_dir.join("protos").join("piecemeal");
+    let prost_out = out_dir.join("protos").join("prost");
 
     // Discover all .proto files under protos/
     let proto_files: Vec<PathBuf> = WalkDir::new("./protos")
@@ -26,23 +26,57 @@ fn main() {
         proto_files.len()
     );
 
-    // Convert to string slices for the API
+    // Convert to string slices for piecemeal API
     let proto_paths: Vec<&str> = proto_files
         .iter()
         .map(|p| p.to_str().expect("invalid path"))
         .collect();
 
+    // Generate piecemeal code
     let config =
-        piecemeal_build::ConfigBuilder::new(&proto_paths[..], &out_directory, &["./protos"])
+        piecemeal_build::ConfigBuilder::new(&proto_paths[..], &piecemeal_out, &["./protos"])
             .unwrap_or_else(|e| {
                 panic!("Failed to create piecemeal-build config: {}", e);
             });
 
     piecemeal_build::types::FileDescriptor::run(&config.build()).unwrap_or_else(|e| {
-        panic!("Failed to generate code: {}", e);
+        panic!("Failed to generate piecemeal code: {}", e);
     });
 
     println!(
-        "cargo:warning=piecemeal-conformance: Successfully generated code for all proto files"
+        "cargo:warning=piecemeal-conformance: Successfully generated piecemeal code for all proto files"
+    );
+
+    // Generate prost code for roundtrip testing
+    // Separate the import test files from others since they require special include path handling
+    let (import_protos, other_protos): (Vec<_>, Vec<_>) = proto_files
+        .iter()
+        .partition(|p| p.starts_with("./protos/imports"));
+
+    std::fs::create_dir_all(&prost_out).unwrap();
+
+    // Compile non-import protos with root include path
+    if !other_protos.is_empty() {
+        prost_build::Config::new()
+            .out_dir(&prost_out)
+            .compile_protos(&other_protos, &["./protos"])
+            .unwrap_or_else(|e| {
+                panic!("Failed to generate prost code for main protos: {}", e);
+            });
+    }
+
+    // Compile import protos with their subdirectory as include path
+    // This allows "import base_types.proto" to work correctly
+    if !import_protos.is_empty() {
+        prost_build::Config::new()
+            .out_dir(&prost_out)
+            .compile_protos(&import_protos, &["./protos/imports"])
+            .unwrap_or_else(|e| {
+                panic!("Failed to generate prost code for import protos: {}", e);
+            });
+    }
+
+    println!(
+        "cargo:warning=piecemeal-conformance: Successfully generated prost code for all proto files"
     );
 }

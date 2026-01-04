@@ -27,10 +27,10 @@ where
     K: MapScalar + ?Sized,
     V: MapScalar + ?Sized,
 {
-    /// Creates a new `GenericMapBuilder` with the given field tag and scratch writer.
-    pub fn new(field_tag: u32, writer: &'w mut ScratchWriter<S>) -> Self {
+    /// Creates a new `GenericMapBuilder` with the given field number and scratch writer.
+    pub fn new(field_number: u32, writer: &'w mut ScratchWriter<S>) -> Self {
         Self {
-            field_tag,
+            field_tag: tag(field_number, WireType::LengthDelimited),
             writer,
             _key_type: PhantomData,
             _value_type: PhantomData,
@@ -55,7 +55,8 @@ where
 
 /// A scalar value suitable as a map key or value.
 pub trait MapScalar {
-    /// Returns the size of the scalar value, in bytes, when serialized.
+    /// Returns the size of the scalar value, in bytes, when serialized as a map
+    /// key or value field (including the tag).
     fn write_size(&self) -> usize;
 
     /// Writes the scalar value to the writer with the given field number.
@@ -70,7 +71,8 @@ macro_rules! map_scalar_impl {
     (deref, from => $ty:ty, to => $scaled_ty:ty, $sizeof_fn:ident, $write_fn:ident) => {
         impl MapScalar for $ty {
             fn write_size(&self) -> usize {
-                $sizeof_fn(<$scaled_ty>::from(*self))
+                // +1 for the tag (field numbers 1 and 2 always fit in 1 byte)
+                1 + $sizeof_fn(<$scaled_ty>::from(*self))
             }
 
             fn write_scalar<W: Writer>(
@@ -88,7 +90,8 @@ macro_rules! map_scalar_impl {
     (deref, from => $ty:ty, $sizeof_fn:ident, $write_fn:ident) => {
         impl MapScalar for $ty {
             fn write_size(&self) -> usize {
-                $sizeof_fn(*self)
+                // +1 for the tag (field numbers 1 and 2 always fit in 1 byte)
+                1 + $sizeof_fn(*self)
             }
 
             fn write_scalar<W: Writer>(
@@ -104,7 +107,8 @@ macro_rules! map_scalar_impl {
     (from => $ty:ty, $sizeof_fn:ident, $write_fn:ident) => {
         impl MapScalar for $ty {
             fn write_size(&self) -> usize {
-                $sizeof_fn(self)
+                // +1 for the tag (field numbers 1 and 2 always fit in 1 byte)
+                1 + $sizeof_fn(self)
             }
 
             fn write_scalar<W: Writer>(
@@ -113,6 +117,25 @@ macro_rules! map_scalar_impl {
                 writer: &mut W,
             ) -> ProtoResult<()> {
                 writer.write_with_tag(tag(field_number, WireType::Varint), |w| w.$write_fn(self))
+            }
+        }
+    };
+
+    (length_delimited, from => $ty:ty, $sizeof_fn:ident, $write_fn:ident) => {
+        impl MapScalar for $ty {
+            fn write_size(&self) -> usize {
+                // +1 for the tag (field numbers 1 and 2 always fit in 1 byte)
+                1 + $sizeof_fn(self)
+            }
+
+            fn write_scalar<W: Writer>(
+                &self,
+                field_number: u32,
+                writer: &mut W,
+            ) -> ProtoResult<()> {
+                writer.write_with_tag(tag(field_number, WireType::LengthDelimited), |w| {
+                    w.$write_fn(self)
+                })
             }
         }
     };
@@ -129,8 +152,8 @@ map_scalar_impl!(deref, from => i64, to => i64, sizeof_sint64, write_sint64);
 map_scalar_impl!(deref, from => f32, sizeof_f32, write_float);
 map_scalar_impl!(deref, from => f64, sizeof_f64, write_double);
 map_scalar_impl!(deref, from => bool, sizeof_bool, write_bool);
-map_scalar_impl!(from => str, sizeof_str, write_string);
-map_scalar_impl!(from => [u8], sizeof_bytes, write_bytes);
+map_scalar_impl!(length_delimited, from => str, sizeof_str, write_string);
+map_scalar_impl!(length_delimited, from => [u8], sizeof_bytes, write_bytes);
 
 /// A map builder for maps with message values.
 ///
@@ -153,10 +176,10 @@ where
     K: MapScalar + ?Sized,
     V: MessageBuilder<S>,
 {
-    /// Creates a new `MessageMapBuilder` with the given field tag, scratch writer, and factory.
-    pub fn new(field_tag: u32, writer: &'w mut ScratchWriter<S>) -> Self {
+    /// Creates a new `MessageMapBuilder` with the given field number and scratch writer.
+    pub fn new(field_number: u32, writer: &'w mut ScratchWriter<S>) -> Self {
         Self {
-            field_tag,
+            field_tag: tag(field_number, WireType::LengthDelimited),
             writer,
             _key_type: PhantomData,
             _value_type: PhantomData,
@@ -189,7 +212,8 @@ where
 
 /// A repeated field builder.
 pub struct RepeatedBuilder<'w, S, T, V: ?Sized> {
-    field_number: u32,
+    field_tag: u32,
+    packed_field_tag: u32,
     can_pack: bool,
     writer: &'w mut ScratchWriter<S>,
     _value_type: PhantomData<(T, V)>,
@@ -204,7 +228,8 @@ where
     /// Creates a new `RepeatedBuilder` with the given field number and scratch writer.
     pub fn new(field_number: u32, can_pack: bool, writer: &'w mut ScratchWriter<S>) -> Self {
         Self {
-            field_number,
+            field_tag: tag(field_number, T::wire_type()),
+            packed_field_tag: tag(field_number, WireType::LengthDelimited),
             can_pack,
             writer,
             _value_type: PhantomData,
@@ -213,8 +238,7 @@ where
 
     /// Adds a new value to the repeated field.
     pub fn add(&mut self, value: &V) -> ProtoResult<()> {
-        self.writer
-            .write_tag(tag(self.field_number, T::wire_type()))?;
+        self.writer.write_tag(self.field_tag)?;
         T::write_value(self.writer, value)
     }
 
@@ -236,8 +260,7 @@ where
         R: std::borrow::Borrow<V> + 'a,
     {
         if T::packable() && self.can_pack {
-            self.writer
-                .write_tag(tag(self.field_number, WireType::LengthDelimited))?;
+            self.writer.write_tag(self.packed_field_tag)?;
             self.writer.track_message(|writer| {
                 for value in values {
                     let value = map(value);

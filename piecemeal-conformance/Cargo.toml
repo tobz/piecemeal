@@ -8,7 +8,9 @@ description = "Conformance tests for piecemeal code generation"
 
 [dependencies]
 piecemeal = { path = "../piecemeal" }
+prost = "0.13"
 
 [build-dependencies]
 piecemeal-build = { path = "../piecemeal-build" }
+prost-build = "0.13"
 walkdir = "2"
