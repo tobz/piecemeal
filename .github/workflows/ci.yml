@@ -19,6 +19,9 @@ jobs:
             - name: Install Rust
               uses: dtolnay/rust-toolchain@stable
 
+            - name: Install mise
+              uses: jdx/mise-action@v2
+
             - name: Cache cargo registry
               uses: actions/cache@v4
               with:
@@ -31,10 +34,10 @@ jobs:
                       ${{ runner.os }}-cargo-
 
             - name: Build
-              run: cargo build --workspace
+              run: mise run build
 
             - name: Run tests
-              run: cargo test --workspace
+              run: mise run test
 
     clippy:
         name: Clippy
@@ -46,6 +49,9 @@ jobs:
               uses: dtolnay/rust-toolchain@stable
               with:
                   components: clippy
+
+            - name: Install mise
+              uses: jdx/mise-action@v2
 
             - name: Cache cargo registry
               uses: actions/cache@v4
@@ -59,7 +65,7 @@ jobs:
                       ${{ runner.os }}-cargo-
 
             - name: Clippy
-              run: cargo clippy --workspace --all-targets -- -D warnings
+              run: mise run lint
 
     fmt:
         name: Format
@@ -72,8 +78,11 @@ jobs:
               with:
                   components: rustfmt
 
+            - name: Install mise
+              uses: jdx/mise-action@v2
+
             - name: Check formatting
-              run: cargo fmt --all -- --check
+              run: mise run fmt:check
 
     coverage:
         name: Coverage
@@ -84,8 +93,8 @@ jobs:
             - name: Install Rust
               uses: dtolnay/rust-toolchain@stable
 
-            - name: Install cargo-llvm-cov
-              uses: taiki-e/install-action@cargo-llvm-cov
+            - name: Install mise
+              uses: jdx/mise-action@v2
 
             - name: Cache cargo registry
               uses: actions/cache@v4
@@ -99,7 +108,7 @@ jobs:
                       ${{ runner.os }}-cargo-
 
             - name: Generate coverage
-              run: cargo llvm-cov --workspace --codecov --output-path codecov.json
+              run: mise run coverage
 
             - name: Upload to Codecov
               uses: codecov/codecov-action@v4

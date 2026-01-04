@@ -118,3 +118,22 @@ normally be required to generate a Protocol Buffers message incrementally.
 - [x] enums
 - [x] oneof fields
 - [x] packed types
+
+## development
+
+This project uses [mise](https://mise.jdx.dev/) for task running and tool management.
+
+### setup
+
+1. [Install mise](https://mise.jdx.dev/getting-started.html)
+2. Run `mise trust` in the project directory
+3. Run `mise install` to install required tools
+
+### common tasks
+
+- `mise run build` - Build all crates
+- `mise run test` - Run tests
+- `mise run fmt` - Format code
+- `mise run lint` - Run clippy
+- `mise run check` - Run all checks (fmt, lint, test)
+- `mise run coverage` - Generate coverage report

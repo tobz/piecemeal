@@ -33,10 +33,15 @@ Rust workspace with three packages:
 
 ## Development Commands
 
+This project uses [mise](https://mise.jdx.dev/) for task running and tool management. Run `mise install` to install required tools.
+
 ```bash
-cargo build          # Build all packages
-cargo test           # Run tests
-cargo check          # Type check only
+mise run build       # Build all packages
+mise run test        # Run tests
+mise run fmt         # Format code
+mise run lint        # Run clippy
+mise run check       # Run all checks (fmt, lint, test)
+mise run coverage    # Generate coverage report
 ```
 
 ## Coding Conventions

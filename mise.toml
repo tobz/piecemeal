@@ -1,0 +1,31 @@
+[tools]
+"cargo:cargo-llvm-cov" = "latest"
+"cargo:cargo-nextest" = "latest"
+
+[tasks.build]
+description = "Build all workspace crates"
+run = "cargo build --workspace"
+
+[tasks.test]
+description = "Run all tests"
+run = "cargo nextest run --workspace"
+
+[tasks.fmt]
+description = "Format code"
+run = "cargo fmt --all"
+
+[tasks."fmt:check"]
+description = "Check code formatting"
+run = "cargo fmt --all -- --check"
+
+[tasks.lint]
+description = "Run clippy"
+run = "cargo clippy --workspace --all-targets -- -D warnings"
+
+[tasks.coverage]
+description = "Generate code coverage report"
+run = "cargo llvm-cov --workspace --codecov --output-path codecov.json"
+
+[tasks.check]
+description = "Run all checks (fmt, lint, test)"
+depends = ["fmt:check", "lint", "test"]
