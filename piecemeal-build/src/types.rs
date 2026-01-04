@@ -12,7 +12,7 @@ use crate::keywords::sanitize_keyword;
 use crate::parser::file_descriptor;
 
 /// Converts a PascalCase string to snake_case.
-fn to_snake_case(s: &str) -> String {
+pub(crate) fn to_snake_case(s: &str) -> String {
     let mut result = String::new();
     for (i, c) in s.chars().enumerate() {
         if c.is_uppercase() {
@@ -28,7 +28,7 @@ fn to_snake_case(s: &str) -> String {
 }
 
 /// Converts a snake_case string to PascalCase.
-fn to_pascal_case(s: &str) -> String {
+pub(crate) fn to_pascal_case(s: &str) -> String {
     s.split('_')
         .map(|word| {
             let mut chars = word.chars();
@@ -150,7 +150,7 @@ impl EnumIndex {
     }
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum FieldCategory {
     /// A scalar value that can generally be written as-is
     Scalar,
@@ -1618,7 +1618,7 @@ impl FileDescriptor {
 }
 
 /// "" is ("",""), "a" is ("","a"), "a.b" is ("a"."b"), and so forth.
-fn split_package(package: &str) -> (&str, &str) {
+pub(crate) fn split_package(package: &str) -> (&str, &str) {
     if package.is_empty() {
         ("", "")
     } else if let Some(i) = package.rfind('.') {
@@ -1691,4 +1691,308 @@ fn get_file_stem(path: &Path) -> Result<String> {
     // will now be properly alphanumeric, but may be a keyword!
     sanitize_keyword(&mut file_stem);
     Ok(file_stem)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Case conversion tests
+    #[test]
+    fn test_to_snake_case() {
+        assert_eq!(to_snake_case("PascalCase"), "pascal_case");
+        assert_eq!(to_snake_case("SimpleTest"), "simple_test");
+        assert_eq!(to_snake_case("A"), "a");
+        assert_eq!(to_snake_case("AB"), "a_b");
+        assert_eq!(to_snake_case("ABCDef"), "a_b_c_def");
+        assert_eq!(to_snake_case("already_snake"), "already_snake");
+        assert_eq!(to_snake_case(""), "");
+        assert_eq!(to_snake_case("lowercase"), "lowercase");
+    }
+
+    #[test]
+    fn test_to_pascal_case() {
+        assert_eq!(to_pascal_case("snake_case"), "SnakeCase");
+        assert_eq!(to_pascal_case("simple_test"), "SimpleTest");
+        assert_eq!(to_pascal_case("a"), "A");
+        assert_eq!(to_pascal_case("a_b"), "AB");
+        assert_eq!(to_pascal_case(""), "");
+        assert_eq!(to_pascal_case("already"), "Already");
+    }
+
+    #[test]
+    fn test_to_pascal_case_empty_segments() {
+        // Leading/trailing underscores create empty segments
+        assert_eq!(to_pascal_case("_leading"), "Leading");
+        assert_eq!(to_pascal_case("trailing_"), "Trailing");
+        assert_eq!(to_pascal_case("__double"), "Double");
+    }
+
+    // split_package tests
+    #[test]
+    fn test_split_package_empty() {
+        assert_eq!(split_package(""), ("", ""));
+    }
+
+    #[test]
+    fn test_split_package_single() {
+        assert_eq!(split_package("a"), ("", "a"));
+        assert_eq!(split_package("package"), ("", "package"));
+    }
+
+    #[test]
+    fn test_split_package_dotted() {
+        assert_eq!(split_package("a.b"), ("a", "b"));
+        assert_eq!(split_package("a.b.c"), ("a.b", "c"));
+        assert_eq!(split_package("com.example.proto"), ("com.example", "proto"));
+    }
+
+    // Frequency tests
+    #[test]
+    fn test_frequency_is_map() {
+        assert!(Frequency::Proto2Frequency(Proto2Frequency::Map).is_map());
+        assert!(Frequency::Proto3Frequency(Proto3Frequency::Map).is_map());
+        assert!(!Frequency::Proto2Frequency(Proto2Frequency::Optional).is_map());
+        assert!(!Frequency::Proto2Frequency(Proto2Frequency::Repeated).is_map());
+        assert!(!Frequency::Proto2Frequency(Proto2Frequency::Required).is_map());
+        assert!(!Frequency::Proto3Frequency(Proto3Frequency::Default).is_map());
+        assert!(!Frequency::Proto3Frequency(Proto3Frequency::Optional).is_map());
+        assert!(!Frequency::Proto3Frequency(Proto3Frequency::Repeated).is_map());
+    }
+
+    #[test]
+    fn test_frequency_is_repeated() {
+        assert!(Frequency::Proto2Frequency(Proto2Frequency::Repeated).is_repeated());
+        assert!(Frequency::Proto3Frequency(Proto3Frequency::Repeated).is_repeated());
+        assert!(!Frequency::Proto2Frequency(Proto2Frequency::Optional).is_repeated());
+        assert!(!Frequency::Proto2Frequency(Proto2Frequency::Required).is_repeated());
+        assert!(!Frequency::Proto2Frequency(Proto2Frequency::Map).is_repeated());
+        assert!(!Frequency::Proto3Frequency(Proto3Frequency::Default).is_repeated());
+        assert!(!Frequency::Proto3Frequency(Proto3Frequency::Optional).is_repeated());
+        assert!(!Frequency::Proto3Frequency(Proto3Frequency::Map).is_repeated());
+    }
+
+    // FieldType tests
+    #[test]
+    fn test_field_type_is_primitive() {
+        // Primitive types
+        assert!(FieldType::Int32.is_primitive());
+        assert!(FieldType::Int64.is_primitive());
+        assert!(FieldType::Uint32.is_primitive());
+        assert!(FieldType::Uint64.is_primitive());
+        assert!(FieldType::Sint32.is_primitive());
+        assert!(FieldType::Sint64.is_primitive());
+        assert!(FieldType::Bool.is_primitive());
+        assert!(FieldType::Fixed32.is_primitive());
+        assert!(FieldType::Fixed64.is_primitive());
+        assert!(FieldType::Sfixed32.is_primitive());
+        assert!(FieldType::Sfixed64.is_primitive());
+        assert!(FieldType::Float.is_primitive());
+        assert!(FieldType::Double.is_primitive());
+
+        // Non-primitive types
+        assert!(!FieldType::String.is_primitive());
+        assert!(!FieldType::Bytes.is_primitive());
+        assert!(!FieldType::Message(MessageIndex::default()).is_primitive());
+        assert!(
+            !FieldType::Map(Box::new(FieldType::String), Box::new(FieldType::Int32)).is_primitive()
+        );
+    }
+
+    #[test]
+    fn test_field_type_category() {
+        assert_eq!(FieldType::Int32.category(), FieldCategory::Scalar);
+        assert_eq!(FieldType::String.category(), FieldCategory::Scalar);
+        assert_eq!(FieldType::Bytes.category(), FieldCategory::Scalar);
+        assert_eq!(FieldType::Bool.category(), FieldCategory::Scalar);
+
+        assert_eq!(
+            FieldType::Message(MessageIndex::default()).category(),
+            FieldCategory::Message
+        );
+
+        assert_eq!(
+            FieldType::Map(Box::new(FieldType::String), Box::new(FieldType::Int32)).category(),
+            FieldCategory::Map
+        );
+    }
+
+    #[test]
+    fn test_field_type_wire_type() {
+        // Varint types
+        assert!(matches!(FieldType::Int32.wire_type(), WireType::Varint));
+        assert!(matches!(FieldType::Int64.wire_type(), WireType::Varint));
+        assert!(matches!(FieldType::Uint32.wire_type(), WireType::Varint));
+        assert!(matches!(FieldType::Uint64.wire_type(), WireType::Varint));
+        assert!(matches!(FieldType::Sint32.wire_type(), WireType::Varint));
+        assert!(matches!(FieldType::Sint64.wire_type(), WireType::Varint));
+        assert!(matches!(FieldType::Bool.wire_type(), WireType::Varint));
+
+        // Fixed64 types
+        assert!(matches!(FieldType::Fixed64.wire_type(), WireType::Fixed64));
+        assert!(matches!(FieldType::Sfixed64.wire_type(), WireType::Fixed64));
+        assert!(matches!(FieldType::Double.wire_type(), WireType::Fixed64));
+
+        // Fixed32 types
+        assert!(matches!(FieldType::Fixed32.wire_type(), WireType::Fixed32));
+        assert!(matches!(FieldType::Sfixed32.wire_type(), WireType::Fixed32));
+        assert!(matches!(FieldType::Float.wire_type(), WireType::Fixed32));
+
+        // Length-delimited types
+        assert!(matches!(
+            FieldType::String.wire_type(),
+            WireType::LengthDelimited
+        ));
+        assert!(matches!(
+            FieldType::Bytes.wire_type(),
+            WireType::LengthDelimited
+        ));
+        assert!(matches!(
+            FieldType::Message(MessageIndex::default()).wire_type(),
+            WireType::LengthDelimited
+        ));
+    }
+
+    #[test]
+    fn test_field_type_message() {
+        let msg_idx = MessageIndex::default();
+        let field_type = FieldType::Message(msg_idx.clone());
+        assert_eq!(field_type.message(), Some(&msg_idx));
+
+        assert_eq!(FieldType::Int32.message(), None);
+        assert_eq!(FieldType::String.message(), None);
+    }
+
+    #[test]
+    fn test_field_type_map() {
+        let key = FieldType::String;
+        let value = FieldType::Int32;
+        let field_type = FieldType::Map(Box::new(key.clone()), Box::new(value.clone()));
+
+        let result = field_type.map();
+        assert!(result.is_some());
+        let (k, v) = result.unwrap();
+        assert_eq!(*k, key);
+        assert_eq!(*v, value);
+
+        assert_eq!(FieldType::Int32.map(), None);
+        assert_eq!(FieldType::Message(MessageIndex::default()).map(), None);
+    }
+
+    // Extensions tests
+    #[test]
+    fn test_extensions_max() {
+        assert_eq!(Extensions::max(), 536870911);
+    }
+
+    // OneOf tests
+    #[test]
+    fn test_oneof_builder_name() {
+        let oneof = OneOf {
+            name: "my_choice".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(oneof.builder_name(), "MyChoiceOneOfBuilder");
+
+        let oneof = OneOf {
+            name: "payload".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(oneof.builder_name(), "PayloadOneOfBuilder");
+    }
+
+    // Field tests
+    #[test]
+    fn test_field_tag() {
+        let field = Field {
+            name: "test".to_string(),
+            number: 1,
+            typ: FieldType::Int32,
+            frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+            default: None,
+            packed: None,
+            deprecated: false,
+        };
+        // tag = (field_number << 3) | wire_type = (1 << 3) | 0 = 8
+        assert_eq!(field.tag(), 8);
+
+        let field2 = Field {
+            name: "test".to_string(),
+            number: 2,
+            typ: FieldType::String,
+            frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+            default: None,
+            packed: None,
+            deprecated: false,
+        };
+        // tag = (2 << 3) | 2 = 18
+        assert_eq!(field2.tag(), 18);
+    }
+
+    #[test]
+    fn test_field_packed() {
+        let mut field = Field {
+            name: "test".to_string(),
+            number: 1,
+            typ: FieldType::Int32,
+            frequency: Frequency::Proto3Frequency(Proto3Frequency::Repeated),
+            default: None,
+            packed: None,
+            deprecated: false,
+        };
+        assert!(!field.packed());
+
+        field.packed = Some(true);
+        assert!(field.packed());
+
+        field.packed = Some(false);
+        assert!(!field.packed());
+    }
+
+    // Proto type name tests
+    #[test]
+    fn test_field_type_proto_type() {
+        assert_eq!(FieldType::Int32.proto_type(), "int32");
+        assert_eq!(FieldType::Int64.proto_type(), "int64");
+        assert_eq!(FieldType::Uint32.proto_type(), "uint32");
+        assert_eq!(FieldType::Uint64.proto_type(), "uint64");
+        assert_eq!(FieldType::Sint32.proto_type(), "sint32");
+        assert_eq!(FieldType::Sint64.proto_type(), "sint64");
+        assert_eq!(FieldType::Bool.proto_type(), "bool");
+        assert_eq!(FieldType::Fixed32.proto_type(), "fixed32");
+        assert_eq!(FieldType::Fixed64.proto_type(), "fixed64");
+        assert_eq!(FieldType::Sfixed32.proto_type(), "sfixed32");
+        assert_eq!(FieldType::Sfixed64.proto_type(), "sfixed64");
+        assert_eq!(FieldType::Float.proto_type(), "float");
+        assert_eq!(FieldType::Double.proto_type(), "double");
+        assert_eq!(FieldType::String.proto_type(), "string");
+        assert_eq!(FieldType::Bytes.proto_type(), "bytes");
+        assert_eq!(
+            FieldType::Message(MessageIndex::default()).proto_type(),
+            "message"
+        );
+        assert_eq!(
+            FieldType::Map(Box::new(FieldType::String), Box::new(FieldType::Int32)).proto_type(),
+            "map"
+        );
+    }
+
+    #[test]
+    fn test_field_type_proto_rust_type() {
+        assert_eq!(FieldType::Int32.proto_rust_type(), "Varint");
+        assert_eq!(FieldType::Int64.proto_rust_type(), "Varint");
+        assert_eq!(FieldType::Uint32.proto_rust_type(), "Varint");
+        assert_eq!(FieldType::Uint64.proto_rust_type(), "Varint");
+        assert_eq!(FieldType::Bool.proto_rust_type(), "Varint");
+        assert_eq!(FieldType::Sint32.proto_rust_type(), "Sint32");
+        assert_eq!(FieldType::Sint64.proto_rust_type(), "Sint64");
+        assert_eq!(FieldType::Fixed32.proto_rust_type(), "Fixed32");
+        assert_eq!(FieldType::Fixed64.proto_rust_type(), "Fixed64");
+        assert_eq!(FieldType::Sfixed32.proto_rust_type(), "Sfixed32");
+        assert_eq!(FieldType::Sfixed64.proto_rust_type(), "Sfixed64");
+        assert_eq!(FieldType::Float.proto_rust_type(), "Sfixed32");
+        assert_eq!(FieldType::Double.proto_rust_type(), "Sfixed64");
+        assert_eq!(FieldType::String.proto_rust_type(), "Bytes");
+        assert_eq!(FieldType::Bytes.proto_rust_type(), "Bytes");
+    }
 }

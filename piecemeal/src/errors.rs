@@ -61,3 +61,108 @@ impl std::fmt::Display for Error {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::error::Error as StdError;
+    use std::io;
+
+    // Display tests
+    #[test]
+    fn test_display_io() {
+        let io_err = io::Error::new(io::ErrorKind::NotFound, "file not found");
+        let err = Error::Io(io_err);
+        let display = err.to_string();
+        assert!(display.contains("I/O error"));
+        assert!(display.contains("file not found"));
+    }
+
+    #[test]
+    fn test_display_utf8() {
+        let bytes = vec![0xff, 0xfe];
+        let utf8_err = std::str::from_utf8(&bytes).unwrap_err();
+        let err = Error::Utf8(utf8_err);
+        let display = err.to_string();
+        assert!(display.contains("UTF-8 error"));
+    }
+
+    #[test]
+    fn test_display_unexpected_end() {
+        let err = Error::UnexpectedEndOfBuffer;
+        assert_eq!(err.to_string(), "unexpected end of buffer");
+    }
+
+    #[test]
+    fn test_display_output_too_small() {
+        let err = Error::OutputBufferTooSmall;
+        assert_eq!(err.to_string(), "output buffer too small");
+    }
+
+    // Error::source() tests
+    #[test]
+    fn test_source_io() {
+        let io_err = io::Error::new(io::ErrorKind::NotFound, "test");
+        let err = Error::Io(io_err);
+        assert!(err.source().is_some());
+    }
+
+    #[test]
+    fn test_source_utf8() {
+        let bytes = vec![0xff];
+        let utf8_err = std::str::from_utf8(&bytes).unwrap_err();
+        let err = Error::Utf8(utf8_err);
+        assert!(err.source().is_some());
+    }
+
+    #[test]
+    fn test_source_none() {
+        assert!(Error::UnexpectedEndOfBuffer.source().is_none());
+        assert!(Error::OutputBufferTooSmall.source().is_none());
+    }
+
+    // From trait tests
+    #[test]
+    fn test_from_io_error() {
+        let io_err = io::Error::new(io::ErrorKind::Other, "test");
+        let err: Error = io_err.into();
+        assert!(matches!(err, Error::Io(_)));
+    }
+
+    #[test]
+    fn test_from_utf8_error() {
+        let bytes = vec![0xff];
+        let utf8_err = std::str::from_utf8(&bytes).unwrap_err();
+        let err: Error = utf8_err.into();
+        assert!(matches!(err, Error::Utf8(_)));
+    }
+
+    // Into<io::Error> tests
+    #[test]
+    fn test_into_io_error_from_io() {
+        let original = io::Error::new(io::ErrorKind::NotFound, "original");
+        let err = Error::Io(original);
+        let io_err: io::Error = err.into();
+        assert_eq!(io_err.kind(), io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn test_into_io_error_from_utf8() {
+        let bytes = vec![0xff];
+        let utf8_err = std::str::from_utf8(&bytes).unwrap_err();
+        let err = Error::Utf8(utf8_err);
+        let io_err: io::Error = err.into();
+        assert_eq!(io_err.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn test_into_io_error_from_other() {
+        let err = Error::UnexpectedEndOfBuffer;
+        let io_err: io::Error = err.into();
+        assert_eq!(io_err.kind(), io::ErrorKind::Other);
+
+        let err = Error::OutputBufferTooSmall;
+        let io_err: io::Error = err.into();
+        assert_eq!(io_err.kind(), io::ErrorKind::Other);
+    }
+}

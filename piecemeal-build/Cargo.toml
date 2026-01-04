@@ -13,3 +13,4 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 walkdir = { version = "2", default-features = false }
+tempfile = "3"
