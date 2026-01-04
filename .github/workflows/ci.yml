@@ -19,6 +19,9 @@ jobs:
             - name: Install Rust
               uses: dtolnay/rust-toolchain@stable
 
+            - name: Install cargo-binstall
+              uses: cargo-bins/cargo-binstall@375d3fe4abf5d50515f5bb8dddf2a6cacfe82eb3
+
             - name: Install mise
               uses: jdx/mise-action@v2
 
@@ -50,6 +53,9 @@ jobs:
               with:
                   components: clippy
 
+            - name: Install cargo-binstall
+              uses: cargo-bins/cargo-binstall@375d3fe4abf5d50515f5bb8dddf2a6cacfe82eb3
+
             - name: Install mise
               uses: jdx/mise-action@v2
 
@@ -78,6 +84,9 @@ jobs:
               with:
                   components: rustfmt
 
+            - name: Install cargo-binstall
+              uses: cargo-bins/cargo-binstall@375d3fe4abf5d50515f5bb8dddf2a6cacfe82eb3
+
             - name: Install mise
               uses: jdx/mise-action@v2
 
@@ -92,6 +101,9 @@ jobs:
 
             - name: Install Rust
               uses: dtolnay/rust-toolchain@stable
+
+            - name: Install cargo-binstall
+              uses: cargo-bins/cargo-binstall@375d3fe4abf5d50515f5bb8dddf2a6cacfe82eb3
 
             - name: Install mise
               uses: jdx/mise-action@v2
