@@ -105,7 +105,7 @@ impl MessageIndex {
             .iter()
             .skip(1)
             .fold(first_message, |cur, next| {
-                cur.and_then(|msg| msg.messages.get(*next))
+                cur.and_then(|msg| msg.nested_messages.get(*next))
             })
             .expect("Message index not found")
     }
@@ -119,7 +119,7 @@ impl MessageIndex {
             .iter()
             .skip(1)
             .fold(first_message, |cur, next| {
-                cur.and_then(|msg| msg.messages.get_mut(*next))
+                cur.and_then(|msg| msg.nested_messages.get_mut(*next))
             })
             .expect("Message index not found")
     }
@@ -140,11 +140,11 @@ pub struct EnumIndex {
 }
 
 impl EnumIndex {
-    pub fn get_enum<'a>(&self, desc: &'a FileDescriptor) -> &'a Enumerator {
+    pub fn get_enum<'a>(&self, desc: &'a FileDescriptor) -> &'a Enumeration {
         let enums = if self.msg_index.indexes.is_empty() {
             &desc.enums
         } else {
-            &self.msg_index.get_message(desc).enums
+            &self.msg_index.get_message(desc).nested_enums
         };
         enums.get(self.index).expect("Enum index not found")
     }
@@ -413,24 +413,23 @@ pub struct Message {
     pub reserved_nums: Option<Vec<u32>>,
     pub reserved_names: Option<Vec<String>>,
     pub imported: bool,
-    pub package: String,        // package from imports + nested items
-    pub messages: Vec<Message>, // nested messages
-    pub enums: Vec<Enumerator>, // nested enums
-    pub module: String,         // 'package' corresponding to actual generated Rust module
+    pub package: String,                // package from imports + nested items
+    pub nested_messages: Vec<Message>,  // nested messages
+    pub nested_enums: Vec<Enumeration>, // nested enums
+    pub module: String,                 // 'package' corresponding to actual generated Rust module
     pub path: PathBuf,
     pub import: PathBuf,
     pub index: MessageIndex,
-    /// Allowed extensions for this message, None if no extensions.
     pub extensions: Option<Extensions>,
 }
 
 impl Message {
     fn set_imported(&mut self) {
         self.imported = true;
-        for m in self.messages.iter_mut() {
+        for m in self.nested_messages.iter_mut() {
             m.set_imported();
         }
-        for e in self.enums.iter_mut() {
+        for e in self.nested_enums.iter_mut() {
             e.imported = true;
         }
     }
@@ -492,20 +491,20 @@ impl Message {
             self.write_oneof_builder(w, oneof, desc)?;
         }
 
-        if !(self.messages.is_empty() && self.enums.is_empty()) {
+        if !(self.nested_messages.is_empty() && self.nested_enums.is_empty()) {
             writeln!(w)?;
             writeln!(w, "pub mod {} {{", to_snake_case(&self.name))?;
             writeln!(w)?;
 
-            Self::write_common_uses(w, &self.messages)?;
+            Self::write_common_uses(w, &self.nested_messages)?;
 
-            if !self.messages.is_empty() {
+            if !self.nested_messages.is_empty() {
                 writeln!(w, "use super::*;")?;
             }
-            for m in &self.messages {
+            for m in &self.nested_messages {
                 m.write(w, desc)?;
             }
-            for e in &self.enums {
+            for e in &self.nested_enums {
                 e.write(w)?;
             }
 
@@ -961,10 +960,10 @@ impl Message {
             )
         };
 
-        for m in &mut self.messages {
+        for m in &mut self.nested_messages {
             m.set_package(&child_package, &child_module);
         }
-        for m in &mut self.enums {
+        for m in &mut self.nested_enums {
             m.set_package(&child_package, &child_module);
         }
         for o in &mut self.oneofs {
@@ -993,10 +992,10 @@ impl Message {
                 sanitize_keyword(&mut f.name);
             }
         }
-        for m in &mut self.messages {
+        for m in &mut self.nested_messages {
             m.sanitize_names();
         }
-        for e in &mut self.enums {
+        for e in &mut self.nested_enums {
             e.sanitize_names();
         }
     }
@@ -1027,14 +1026,12 @@ pub struct Extensions {
 }
 
 impl Extensions {
-    /// The max field number that can be used as an extension.
-    pub fn max() -> u32 {
-        536870911
-    }
+    /// Maximum field number that can be used for an extension.
+    pub const MAX_FIELD_NUMBER: u32 = 536870911;
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Enumerator {
+pub struct Enumeration {
     pub name: String,
     pub fields: Vec<(String, i32)>,
     pub fully_qualified_fields: Vec<(String, i32)>,
@@ -1047,7 +1044,7 @@ pub struct Enumerator {
     pub index: EnumIndex,
 }
 
-impl Enumerator {
+impl Enumeration {
     fn set_package(&mut self, package: &str, module: &str) {
         self.package = package.to_string();
         self.module = module.to_string();
@@ -1178,7 +1175,7 @@ pub struct FileDescriptor {
     pub package: String,
     pub syntax: Syntax,
     pub messages: Vec<Message>,
-    pub enums: Vec<Enumerator>,
+    pub enums: Vec<Enumeration>,
     pub module: String,
 }
 
@@ -1408,7 +1405,7 @@ impl FileDescriptor {
                     .entry(format!("{}.{}", m.package, m.name))
                     .or_insert_with(|| index.clone());
             }
-            for (i, e) in m.enums.iter_mut().enumerate() {
+            for (i, e) in m.nested_enums.iter_mut().enumerate() {
                 let index = EnumIndex {
                     msg_index: index.clone(),
                     index: i,
@@ -1418,7 +1415,7 @@ impl FileDescriptor {
                     .entry(format!("{}.{}", e.package, e.name))
                     .or_insert(index);
             }
-            for (i, m) in m.messages.iter_mut().enumerate() {
+            for (i, m) in m.nested_messages.iter_mut().enumerate() {
                 index.push(i);
                 rec_full_names(m, index, full_msgs, full_enums);
                 index.pop();
@@ -1504,7 +1501,7 @@ impl FileDescriptor {
                     return Err(Error::MessageOrEnumNotFound(name));
                 }
             }
-            for m in m.messages.iter_mut() {
+            for m in m.nested_messages.iter_mut() {
                 rec_resolve_types(m, full_msgs, full_enums)?;
             }
             Ok(())
@@ -1882,7 +1879,7 @@ mod tests {
     // Extensions tests
     #[test]
     fn test_extensions_max() {
-        assert_eq!(Extensions::max(), 536870911);
+        assert_eq!(Extensions::MAX_FIELD_NUMBER, 536870911);
     }
 
     // OneOf tests

@@ -264,7 +264,7 @@ mod tests {
     // From trait tests
     #[test]
     fn test_from_io_error() {
-        let io_err = io::Error::new(io::ErrorKind::Other, "test");
+        let io_err = io::Error::other("test");
         let err: Error = io_err.into();
         assert!(matches!(err, Error::Io(_)));
     }

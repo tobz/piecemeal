@@ -3,7 +3,7 @@ use std::str;
 use std::{convert::TryFrom, path::PathBuf};
 
 use crate::types::{
-    Enumerator, Extensions, Field, FieldType, FileDescriptor, Frequency, Message, OneOf,
+    Enumeration, Extensions, Field, FieldType, FileDescriptor, Frequency, Message, OneOf,
     Proto2Frequency, Proto3Frequency, Syntax,
 };
 
@@ -30,7 +30,7 @@ enum ParsingStageFrequencyToken {
 #[allow(clippy::large_enum_variant)]
 enum MessageEvent {
     Message(Message),
-    Enumerator(Enumerator),
+    Enumerator(Enumeration),
     Field(Field),
     ReservedNums(Vec<u32>),
     ReservedNames(Vec<String>),
@@ -52,7 +52,7 @@ enum Event {
     Import(PathBuf),
     Package(String),
     Message(Message),
-    Enum(Enumerator),
+    Enum(Enumeration),
     Ignore,
 }
 
@@ -170,7 +170,7 @@ fn extensions(input: &str) -> IResult<&str, Extensions> {
             // TODO: is there a better way to parse "max" or a number?
             let s = to.trim();
             let to = if s == "max" {
-                Extensions::max()
+                Extensions::MAX_FIELD_NUMBER
             } else {
                 s.parse().unwrap()
             };
@@ -487,8 +487,8 @@ fn message(syntax: Syntax) -> impl FnMut(&str) -> IResult<&str, Message> {
                         MessageEvent::Field(f) => msg.fields.push(f),
                         MessageEvent::ReservedNums(r) => msg.reserved_nums = Some(r),
                         MessageEvent::ReservedNames(r) => msg.reserved_names = Some(r),
-                        MessageEvent::Message(m) => msg.messages.push(m),
-                        MessageEvent::Enumerator(e) => msg.enums.push(e),
+                        MessageEvent::Message(m) => msg.nested_messages.push(m),
+                        MessageEvent::Enumerator(e) => msg.nested_enums.push(e),
                         MessageEvent::OneOf(o) => msg.oneofs.push(o),
                         MessageEvent::Extensions(e) => msg.extensions = Some(e),
                         MessageEvent::Ignore => (),
@@ -540,7 +540,7 @@ fn enum_event(input: &str) -> IResult<&str, EnumEvent> {
     ))(input)
 }
 
-fn enumerator(input: &str) -> IResult<&str, Enumerator> {
+fn enumerator(input: &str) -> IResult<&str, Enumeration> {
     map_res(
         terminated(
             pair(
@@ -550,7 +550,7 @@ fn enumerator(input: &str) -> IResult<&str, Enumerator> {
             opt(pair(many0(br), tag(";"))),
         ),
         |(name, events)| {
-            let mut enumerator = Enumerator {
+            let mut enumerator = Enumeration {
                 name,
                 ..Default::default()
             };
@@ -559,7 +559,7 @@ fn enumerator(input: &str) -> IResult<&str, Enumerator> {
                     enumerator.fields.push(f);
                 }
             }
-            Ok::<Enumerator, &str>(enumerator)
+            Ok::<Enumeration, &str>(enumerator)
         },
     )(input)
 }
@@ -784,8 +784,8 @@ mod test {
         let desc = file_descriptor(msg).unwrap().1;
         assert_eq!("foo.bar".to_string(), desc.package);
         assert_eq!(1, desc.messages.len());
-        assert_eq!(3, desc.messages[0].messages.len());
-        assert_eq!(3, desc.messages[0].enums.len());
+        assert_eq!(3, desc.messages[0].nested_messages.len());
+        assert_eq!(3, desc.messages[0].nested_enums.len());
         assert_desc(msg).unwrap();
     }
 
@@ -884,7 +884,7 @@ mod test {
         let a = a.as_ref().unwrap();
         let b = b.as_ref().unwrap();
         assert_eq!(a.from, 1300);
-        assert_eq!(a.to, Extensions::max());
+        assert_eq!(a.to, Extensions::MAX_FIELD_NUMBER);
         assert_eq!(b.from, 10321);
         assert_eq!(b.to, 11000);
     }
@@ -905,7 +905,7 @@ mod test {
 
         let desc = file_descriptor(msg).unwrap().1;
         assert_eq!(1, desc.messages.len());
-        assert_eq!(3, desc.messages[0].messages.len());
+        assert_eq!(3, desc.messages[0].nested_messages.len());
         assert_desc(msg).unwrap();
     }
 
