@@ -3,7 +3,7 @@ use std::str;
 use std::{convert::TryFrom, path::PathBuf};
 
 use crate::types::{
-    Enumerator, Extend, Extensions, Field, FieldType, FileDescriptor, Frequency, Message, OneOf,
+    Enumerator, Extensions, Field, FieldType, FileDescriptor, Frequency, Message, OneOf,
     Proto2Frequency, Proto3Frequency, Syntax,
 };
 
@@ -53,7 +53,6 @@ enum Event {
     Package(String),
     Message(Message),
     Enum(Enumerator),
-    Extend(Extend),
     Ignore,
 }
 
@@ -357,7 +356,6 @@ where
                             None
                         }
                     }),
-                    boxed: false,
                     typ,
                     deprecated: key_vals
                         .iter()
@@ -573,25 +571,6 @@ fn option_ignore(input: &str) -> IResult<&str, ()> {
     )(input)
 }
 
-fn extend(syntax: Syntax) -> impl FnMut(&str) -> IResult<&str, Extend> {
-    move |input| {
-        map(
-            terminated(
-                pair(
-                    delimited(pair(tag("extend"), many1(br)), qualifiable_name, many0(br)),
-                    delimited(
-                        tag("{"),
-                        many1(delimited(many0(br), message_field(syntax), many0(br))),
-                        tag("}"),
-                    ),
-                ),
-                opt(pair(many0(br), tag(";"))),
-            ),
-            |(name, fields)| Extend { name, fields },
-        )(input)
-    }
-}
-
 fn scan_syntax(input: &str) -> IResult<&str, Syntax> {
     map_res(separated_list0(many0(anychar), syntax), |v| {
         Ok::<Syntax, &str>(if v.is_empty() { Syntax::Proto2 } else { v[0] })
@@ -612,7 +591,6 @@ pub fn file_descriptor<'a>(
                     map(package, Event::Package),
                     map(message(got_syntax), Event::Message),
                     map(enumerator, Event::Enum),
-                    map(extend(got_syntax), Event::Extend),
                     value(Event::Ignore, rpc_service),
                     value(Event::Ignore, option_ignore),
                     value(Event::Ignore, br),
@@ -626,7 +604,6 @@ pub fn file_descriptor<'a>(
                             Event::Package(p) => desc.package = p,
                             Event::Message(m) => desc.messages.push(m),
                             Event::Enum(e) => desc.enums.push(e),
-                            Event::Extend(e) => desc.message_extends.push(e),
                             Event::Ignore => (),
                         }
                     }
@@ -878,49 +855,6 @@ mod test {
         }"#;
         let desc = file_descriptor(msg).unwrap().1;
         assert_eq!(1, desc.enums.len());
-    }
-
-    #[test]
-    fn test_extend() {
-        let msg = r#"message A {
-            optional int32 a = 1;
-            extensions 12000 to 12500;
-        }
-        extend A {
-            optional int32 g = 12123;
-            optional int32 h = 12123;
-            optional int32 t = 12123;
-        }
-        "#;
-        let desc = file_descriptor(msg).unwrap().1;
-        assert_eq!(1, desc.messages.len());
-        assert_eq!(1, desc.message_extends.len());
-        let extend = &desc.message_extends[0];
-        assert_eq!("A", &extend.name);
-        assert_eq!(3, extend.fields.len());
-        let g = &extend.fields[0];
-        let h = &extend.fields[1];
-        let t = &extend.fields[2];
-        assert_eq!("g", &g.name);
-        assert_eq!("h", &h.name);
-        assert_eq!("t", &t.name);
-    }
-
-    #[test]
-    fn test_extend_some_other() {
-        let msg = r#"
-        extend .foo.bar.Baz {
-            optional int32 b = 12123;
-        }
-        "#;
-        let desc = file_descriptor(msg).unwrap().1;
-        assert_eq!(0, desc.messages.len());
-        assert_eq!(1, desc.message_extends.len());
-        let extend = &desc.message_extends[0];
-        assert_eq!(".foo.bar.Baz", &extend.name);
-        assert_eq!(1, extend.fields.len());
-        let field = &extend.fields[0];
-        assert_eq!("b", &field.name);
     }
 
     #[test]

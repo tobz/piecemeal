@@ -1,7 +1,6 @@
 pub mod errors;
 mod keywords;
 mod parser;
-mod scc;
 pub mod types;
 
 use errors::{Error, Result};
@@ -15,7 +14,6 @@ pub struct ConfigBuilder {
     output_dir: PathBuf,
     include_paths: Vec<PathBuf>,
     single_module: bool,
-    error_cycle: bool,
     headers: bool,
     add_deprecated_fields: bool,
 }
@@ -84,15 +82,6 @@ impl ConfigBuilder {
         self
     }
 
-    /// Whether or not to emit an error during code generation if a recursive message contains cycles that are not
-    /// broken by the use of optional fields.
-    ///
-    /// Defaults to `false.`
-    pub fn error_cycle(mut self, val: bool) -> Self {
-        self.error_cycle = val;
-        self
-    }
-
     /// Whether or not to emit certain attribute headers in the generated code to suppress various Clippy lints, such as
     /// missing documentation or dead code, and so on.
     ///
@@ -125,7 +114,6 @@ impl ConfigBuilder {
                     out_dir,
                     import_search_path: self.include_paths.clone(),
                     single_module: self.single_module,
-                    error_cycle: self.error_cycle,
                     headers: self.headers,
                     add_deprecated_fields: self.add_deprecated_fields,
                 }

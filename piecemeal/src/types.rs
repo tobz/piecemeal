@@ -179,26 +179,6 @@ impl WireType {
     }
 }
 
-/// A non-complex value type, excluding strings and bytes.
-///
-/// This is effectively all numeric types and booleans.
-///
-/// Another way to view primitives types is that they all have a bounded size and can potentially be
-/// encoded contiguously without the need for a field tag between each value. This property is what
-/// allows for packed repeated fields when the field is a primitive type.
-pub trait Primitive {}
-
-impl<T> Primitive for T where T: ProtobufValue<T> {}
-
-/// A non-complex value type.
-///
-/// Scalar values include primitive values as well as strings and bytes.
-///
-/// Essentially, any value that isn't an object or map is a scalar type.
-pub trait Scalar {}
-
-impl<T> Scalar for T where T: ProtobufValue<T> {}
-
 /// A Protocol Buffers value.
 pub trait ProtobufValue<T: ?Sized> {
     /// [Wire type][wiretype] of the value.
@@ -218,22 +198,6 @@ pub trait ProtobufValue<T: ?Sized> {
     /// If the value cannot be written to the writer, an error is returned.
     fn write_value<W: Writer>(writer: &mut W, value: &T) -> ProtoResult<()>;
 }
-
-macro_rules! impl_basic_traits {
-	(primitive => [$($t:ty),+]) => {
-		$(
-			impl Primitive for $t {}
-		)+
-	};
-	(scalar => [$($t:ty),+]) => {
-		$(
-			impl Scalar for $t {}
-		)+
-	};
-}
-
-impl_basic_traits!(primitive => [bool, u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, f32, f64]);
-impl_basic_traits!(scalar => [bool, u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, f32, f64, str, [u8]]);
 
 /// Message builder base trait.
 pub trait MessageBuilderBase<S> {

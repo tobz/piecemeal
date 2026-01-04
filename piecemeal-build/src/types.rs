@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 
 use piecemeal::helpers::tag;
 use piecemeal::types::WireType;
-use tracing::{debug, warn};
 
 use crate::errors::{Error, Result};
 use crate::keywords::sanitize_keyword;
@@ -57,13 +56,6 @@ pub enum Proto3Frequency {
     Map,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GeneratedType {
-    SingularType,
-    ArrayLikeType,
-    Map,
-}
-
 impl Frequency {
     pub fn is_map(&self) -> bool {
         matches!(
@@ -73,32 +65,12 @@ impl Frequency {
         )
     }
 
-    pub fn is_optional(&self) -> bool {
-        matches!(
-            self,
-            Frequency::Proto2Frequency(Proto2Frequency::Optional)
-                | Frequency::Proto3Frequency(Proto3Frequency::Optional)
-        )
-    }
-
     pub fn is_repeated(&self) -> bool {
         matches!(
             self,
             Frequency::Proto2Frequency(Proto2Frequency::Repeated)
                 | Frequency::Proto3Frequency(Proto3Frequency::Repeated)
         )
-    }
-}
-
-impl From<Frequency> for GeneratedType {
-    fn from(value: Frequency) -> Self {
-        if value.is_map() {
-            GeneratedType::Map
-        } else if value.is_repeated() {
-            GeneratedType::ArrayLikeType
-        } else {
-            GeneratedType::SingularType
-        }
     }
 }
 
@@ -311,11 +283,7 @@ impl FieldType {
                 let m = msg.get_message(desc);
                 format!("{}{}", m.get_modules(desc), m.name)
             }
-            FieldType::Map(ref key, ref value) => format!(
-                "KVMap<{}, {}>",
-                key.struct_rust_type(desc),
-                value.struct_rust_type(desc)
-            ),
+            FieldType::Map(_, _) => unreachable!("maps are handled separately"),
             FieldType::MessageOrEnum(_) => unreachable!("message / enum not resolved"),
         }
     }
@@ -398,7 +366,6 @@ pub struct Field {
     pub number: u32,
     pub default: Option<String>,
     pub packed: Option<bool>,
-    pub boxed: bool,
     pub deprecated: bool,
 }
 
@@ -426,16 +393,6 @@ fn get_modules(module: &str, imported: bool, desc: &FileDescriptor) -> String {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Extend {
-    /// The message being extended.
-    pub name: String,
-    /// All fields that are being added to the extended message.
-    pub fields: Vec<Field>,
-}
-
-impl Extend {}
-
-#[derive(Debug, Clone, Default)]
 pub struct Message {
     pub name: String,
     pub fields: Vec<Field>,
@@ -455,35 +412,6 @@ pub struct Message {
 }
 
 impl Message {
-    fn convert_field_types(&mut self, from: &FieldType, to: &FieldType) {
-        for f in self.all_fields_mut().filter(|f| f.typ == *from) {
-            f.typ = to.clone();
-        }
-
-        // If that type is a map with the fieldtype, it must also be converted.
-        for f in self.all_fields_mut() {
-            let new_type: FieldType = match f.typ {
-                FieldType::Map(ref mut key, ref mut value)
-                    if **key == *from && **value == *from =>
-                {
-                    FieldType::Map(Box::new(to.clone()), Box::new(to.clone()))
-                }
-                FieldType::Map(ref mut key, ref mut value) if **key == *from => {
-                    FieldType::Map(Box::new(to.clone()), value.clone())
-                }
-                FieldType::Map(ref mut key, ref mut value) if **value == *from => {
-                    FieldType::Map(key.clone(), Box::new(to.clone()))
-                }
-                ref other => other.clone(),
-            };
-            f.typ = new_type;
-        }
-
-        for message in &mut self.messages {
-            message.convert_field_types(from, to);
-        }
-    }
-
     fn set_imported(&mut self) {
         self.imported = true;
         for m in self.messages.iter_mut() {
@@ -1059,7 +987,6 @@ pub struct Config {
     pub out_dir: PathBuf,
     pub single_module: bool,
     pub import_search_path: Vec<PathBuf>,
-    pub error_cycle: bool,
     pub headers: bool,
     pub add_deprecated_fields: bool,
 }
@@ -1070,7 +997,6 @@ pub struct FileDescriptor {
     pub package: String,
     pub syntax: Syntax,
     pub messages: Vec<Message>,
-    pub message_extends: Vec<Extend>,
     pub enums: Vec<Enumerator>,
     pub module: String,
 }
@@ -1092,7 +1018,6 @@ impl FileDescriptor {
         }
 
         desc.resolve_types()?;
-        desc.break_cycles(config.error_cycle)?;
         desc.sanity_checks()?;
         desc.set_defaults()?;
         desc.sanitize_names();
@@ -1135,13 +1060,6 @@ impl FileDescriptor {
         let mut w = BufWriter::new(File::create(&out_file)?);
         desc.write(&mut w, name, config)?;
         update_mod_file(&out_file)
-    }
-
-    pub fn convert_field_types(&mut self, from: &FieldType, to: &FieldType) {
-        // Messages and enums are the only structures with types
-        for m in &mut self.messages {
-            m.convert_field_types(from, to);
-        }
     }
 
     /// Opens a proto file, reads it and returns raw parsed data
@@ -1290,99 +1208,6 @@ impl FileDescriptor {
         for e in &mut self.enums {
             e.sanitize_names();
         }
-    }
-
-    /// Breaks cycles by adding boxes when necessary
-    fn break_cycles(&mut self, error_cycle: bool) -> Result<()> {
-        // get strongly connected components
-        let sccs = self.sccs();
-
-        fn is_cycle(scc: &[MessageIndex], desc: &FileDescriptor) -> bool {
-            scc.iter()
-                .map(|m| m.get_message(desc))
-                .flat_map(|m| m.all_fields())
-                .filter(|f| !f.boxed)
-                .filter_map(|f| f.typ.message())
-                .any(|m| scc.contains(m))
-        }
-
-        // sccs are sub DFS trees so if there is a edge connecting a node to
-        // another node higher in the scc list, then this is a cycle. (Note that
-        // we may have several cycles per scc).
-        //
-        // Technically we only need to box one edge (optional field) per cycle to
-        // have Sized structs. Unfortunately, scc root depend on the order we
-        // traverse the graph so such a field is not guaranteed to always be the same.
-        //
-        // For now, we decide (see discussion in #121) to box all optional fields
-        // within a scc. We favor generated code stability over performance.
-        for scc in &sccs {
-            debug!("scc: {:?}", scc);
-            for (i, v) in scc.iter().enumerate() {
-                // cycles with v as root
-                let cycles = v
-                    .get_message(self)
-                    .all_fields()
-                    .filter_map(|f| f.typ.message())
-                    .filter_map(|m| scc[i..].iter().position(|n| n == m))
-                    .collect::<Vec<_>>();
-                for cycle in cycles {
-                    let cycle = &scc[i..i + cycle + 1];
-                    debug!("cycle: {:?}", &cycle);
-                    for v in cycle {
-                        for f in v
-                            .get_message_mut(self)
-                            .all_fields_mut()
-                            .filter(|f| f.frequency.is_optional())
-                            .filter(|f| f.typ.message().is_some_and(|m| cycle.contains(m)))
-                        {
-                            f.boxed = true;
-                        }
-                    }
-                    if is_cycle(cycle, self) {
-                        if error_cycle {
-                            return Err(Error::Cycle(
-                                cycle
-                                    .iter()
-                                    .map(|m| m.get_message(self).name.clone())
-                                    .collect(),
-                            ));
-                        } else {
-                            for v in cycle {
-                                warn!(
-                                    "Unsound proto file would result in infinite size Messages.\n\
-                                     Cycle detected in messages {:?}.\n\
-                                     Modifying required fields into optional fields",
-                                    cycle
-                                        .iter()
-                                        .map(|m| &m.get_message(self).name)
-                                        .collect::<Vec<_>>()
-                                );
-                                for f in v
-                                    .get_message_mut(self)
-                                    .all_fields_mut()
-                                    .filter(|f| {
-                                        !(f.frequency.is_optional() || f.frequency.is_repeated())
-                                    })
-                                    .filter(|f| f.typ.message().is_some_and(|m| cycle.contains(m)))
-                                {
-                                    f.boxed = true;
-                                    f.frequency = match f.frequency {
-                                        Frequency::Proto2Frequency(_) => {
-                                            Frequency::Proto2Frequency(Proto2Frequency::Optional)
-                                        }
-                                        Frequency::Proto3Frequency(_) => {
-                                            Frequency::Proto3Frequency(Proto3Frequency::Optional)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
     }
 
     fn get_full_names(&mut self) -> (HashMap<String, MessageIndex>, HashMap<String, EnumIndex>) {
