@@ -1992,4 +1992,1653 @@ mod tests {
         assert_eq!(FieldType::String.proto_rust_type(), "Bytes");
         assert_eq!(FieldType::Bytes.proto_rust_type(), "Bytes");
     }
+
+    // ============ TEST HELPERS ============
+
+    fn create_test_descriptor() -> FileDescriptor {
+        FileDescriptor {
+            package: "test".to_string(),
+            module: "test".to_string(),
+            syntax: Syntax::Proto3,
+            ..Default::default()
+        }
+    }
+
+    fn create_simple_field(name: &str, number: u32, typ: FieldType) -> Field {
+        Field {
+            name: name.to_string(),
+            number,
+            typ,
+            frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+            default: None,
+            packed: None,
+            deprecated: false,
+        }
+    }
+
+    fn create_repeated_field(name: &str, number: u32, typ: FieldType) -> Field {
+        Field {
+            name: name.to_string(),
+            number,
+            typ,
+            frequency: Frequency::Proto3Frequency(Proto3Frequency::Repeated),
+            default: None,
+            packed: None,
+            deprecated: false,
+        }
+    }
+
+    fn create_map_field(name: &str, number: u32, key: FieldType, value: FieldType) -> Field {
+        Field {
+            name: name.to_string(),
+            number,
+            typ: FieldType::Map(Box::new(key), Box::new(value)),
+            frequency: Frequency::Proto3Frequency(Proto3Frequency::Map),
+            default: None,
+            packed: None,
+            deprecated: false,
+        }
+    }
+
+    // ============ ENUMERATION CODE GENERATION TESTS ============
+
+    #[test]
+    fn test_enumeration_write_definition() {
+        let mut buf = Vec::new();
+        let e = Enumeration {
+            name: "Status".to_string(),
+            fields: vec![
+                ("UNKNOWN".to_string(), 0),
+                ("ACTIVE".to_string(), 1),
+                ("INACTIVE".to_string(), 2),
+            ],
+            ..Default::default()
+        };
+        e.write_definition(&mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("#[derive(Debug, PartialEq, Eq, Clone, Copy)]"));
+        assert!(output.contains("pub enum Status {"));
+        assert!(output.contains("UNKNOWN = 0,"));
+        assert!(output.contains("ACTIVE = 1,"));
+        assert!(output.contains("INACTIVE = 2,"));
+    }
+
+    #[test]
+    fn test_enumeration_write_impl_default() {
+        let mut buf = Vec::new();
+        let mut e = Enumeration {
+            name: "Status".to_string(),
+            fields: vec![("UNKNOWN".to_string(), 0), ("ACTIVE".to_string(), 1)],
+            ..Default::default()
+        };
+        e.set_package("test", "test");
+        e.write_impl_default(&mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("impl Default for Status {"));
+        assert!(output.contains("fn default() -> Self {"));
+        assert!(output.contains("Status::UNKNOWN"));
+    }
+
+    #[test]
+    fn test_enumeration_write_from_i32() {
+        let mut buf = Vec::new();
+        let e = Enumeration {
+            name: "Status".to_string(),
+            fields: vec![("UNKNOWN".to_string(), 0), ("ACTIVE".to_string(), 1)],
+            ..Default::default()
+        };
+        e.write_from_i32(&mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("impl From<i32> for Status {"));
+        assert!(output.contains("fn from(i: i32) -> Self {"));
+        assert!(output.contains("match i {"));
+        assert!(output.contains("0 => Status::UNKNOWN,"));
+        assert!(output.contains("1 => Status::ACTIVE,"));
+        assert!(output.contains("_ => Self::default(),"));
+    }
+
+    #[test]
+    fn test_enumeration_write_from_str() {
+        let mut buf = Vec::new();
+        let e = Enumeration {
+            name: "Status".to_string(),
+            fields: vec![("UNKNOWN".to_string(), 0), ("ACTIVE".to_string(), 1)],
+            ..Default::default()
+        };
+        e.write_from_str(&mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("impl<'a> From<&'a str> for Status {"));
+        assert!(output.contains("fn from(s: &'a str) -> Self {"));
+        assert!(output.contains("match s {"));
+        assert!(output.contains("\"UNKNOWN\" => Status::UNKNOWN,"));
+        assert!(output.contains("\"ACTIVE\" => Status::ACTIVE,"));
+        assert!(output.contains("_ => Self::default(),"));
+    }
+
+    #[test]
+    fn test_enumeration_write_full() {
+        let mut buf = Vec::new();
+        let mut e = Enumeration {
+            name: "Priority".to_string(),
+            fields: vec![
+                ("LOW".to_string(), 0),
+                ("MEDIUM".to_string(), 1),
+                ("HIGH".to_string(), 2),
+            ],
+            ..Default::default()
+        };
+        e.set_package("test", "test");
+        e.write(&mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        // Should contain all parts
+        assert!(output.contains("pub enum Priority {"));
+        assert!(output.contains("impl Default for Priority {"));
+        assert!(output.contains("impl From<i32> for Priority {"));
+        assert!(output.contains("impl<'a> From<&'a str> for Priority {"));
+    }
+
+    #[test]
+    fn test_enumeration_write_empty() {
+        let mut buf = Vec::new();
+        let e = Enumeration {
+            name: "Empty".to_string(),
+            fields: vec![],
+            ..Default::default()
+        };
+        e.write(&mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        // Empty enum should still have definition but no impls
+        assert!(output.contains("pub enum Empty {"));
+        assert!(!output.contains("impl Default"));
+        assert!(!output.contains("impl From<i32>"));
+    }
+
+    #[test]
+    fn test_enumeration_set_package() {
+        let mut e = Enumeration {
+            name: "Status".to_string(),
+            fields: vec![("UNKNOWN".to_string(), 0), ("ACTIVE".to_string(), 1)],
+            ..Default::default()
+        };
+        e.set_package("foo.bar", "foo.bar");
+        assert_eq!(e.package, "foo.bar");
+        assert_eq!(e.module, "foo.bar");
+        // Partially qualified should be EnumName::FieldName
+        assert_eq!(e.partially_qualified_fields[0].0, "Status::UNKNOWN");
+        assert_eq!(e.partially_qualified_fields[1].0, "Status::ACTIVE");
+        // Fully qualified should include module path
+        assert_eq!(e.fully_qualified_fields[0].0, "foo::bar::Status::UNKNOWN");
+    }
+
+    #[test]
+    fn test_enumeration_get_modules() {
+        let desc = FileDescriptor {
+            package: "test".to_string(),
+            ..Default::default()
+        };
+        let e = Enumeration {
+            name: "Status".to_string(),
+            module: "foo.bar".to_string(),
+            imported: false,
+            ..Default::default()
+        };
+        assert_eq!(e.get_modules(&desc), "foo::bar::");
+    }
+
+    #[test]
+    fn test_enumeration_sanitize_names() {
+        let mut e = Enumeration {
+            name: "type".to_string(),            // Rust keyword
+            package: "match".to_string(),        // Rust keyword
+            fields: vec![("fn".to_string(), 0)], // Rust keyword
+            ..Default::default()
+        };
+        e.sanitize_names();
+        assert_eq!(e.name, "type_");
+        assert_eq!(e.package, "match_");
+        assert_eq!(e.fields[0].0, "fn_");
+    }
+
+    // ============ MESSAGE BUILDER CODE GENERATION TESTS ============
+
+    #[test]
+    fn test_write_message_builder_simple() {
+        let mut buf = Vec::new();
+        let desc = create_test_descriptor();
+        let msg = Message {
+            name: "Person".to_string(),
+            fields: vec![create_simple_field("name", 1, FieldType::String)],
+            ..Default::default()
+        };
+        msg.write_message_builder(&mut buf, &desc).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("pub struct Person;"));
+        assert!(output.contains("pub struct PersonBuilder<'w, S: ScratchBuffer>"));
+        assert!(output.contains("impl<'w, S: ScratchBuffer> PersonBuilder<'w, S>"));
+        assert!(output.contains("pub fn new(writer: &'w mut ScratchWriter<S>) -> Self"));
+        assert!(output.contains("fn name(&mut self"));
+        assert!(output.contains("pub fn finish<W: Writer>"));
+        assert!(output.contains("pub fn finish_length_delimited<W: Writer>"));
+        assert!(output.contains("impl<S: ScratchBuffer> MessageBuilderBase<S> for Person"));
+        assert!(output.contains("impl<S: ScratchBuffer> MessageBuilder<S> for Person"));
+    }
+
+    #[test]
+    fn test_write_message_builder_field_scalar_simple() {
+        let mut buf = Vec::new();
+        let desc = create_test_descriptor();
+        let msg = Message::default();
+        let field = create_simple_field("age", 1, FieldType::Int32);
+        msg.write_message_builder_field_scalar(&mut buf, &field, &desc)
+            .unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("pub fn age(&mut self, value: i32)"));
+        assert!(output.contains("write_with_tag(8")); // tag for field 1, varint
+        assert!(output.contains("write_int32(value)"));
+    }
+
+    #[test]
+    fn test_write_message_builder_field_scalar_string() {
+        let mut buf = Vec::new();
+        let desc = create_test_descriptor();
+        let msg = Message::default();
+        let field = create_simple_field("name", 1, FieldType::String);
+        msg.write_message_builder_field_scalar(&mut buf, &field, &desc)
+            .unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        // String is non-primitive, should be borrowed
+        assert!(output.contains("pub fn name(&mut self, value: &str)"));
+        assert!(output.contains("write_string(value)"));
+    }
+
+    #[test]
+    fn test_write_message_builder_field_scalar_repeated() {
+        let mut buf = Vec::new();
+        let desc = create_test_descriptor();
+        let msg = Message::default();
+        let field = create_repeated_field("values", 1, FieldType::Int32);
+        msg.write_message_builder_field_scalar(&mut buf, &field, &desc)
+            .unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("pub fn values<F>(&mut self, f: F)"));
+        assert!(output.contains("RepeatedBuilder<'a, S, Varint, i32>"));
+        assert!(output.contains("RepeatedBuilder::new(1,"));
+    }
+
+    #[test]
+    fn test_write_message_builder_field_message() {
+        let mut buf = Vec::new();
+        let mut desc = create_test_descriptor();
+        // Add an inner message to the descriptor
+        desc.messages.push(Message {
+            name: "Address".to_string(),
+            package: "test".to_string(),
+            module: "test".to_string(),
+            ..Default::default()
+        });
+        let msg = Message::default();
+        let field = Field {
+            name: "address".to_string(),
+            number: 1,
+            typ: FieldType::Message(MessageIndex { indexes: vec![0] }),
+            frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+            default: None,
+            packed: None,
+            deprecated: false,
+        };
+        msg.write_message_builder_field_message(&mut buf, &field, &desc)
+            .unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("pub fn address<F>(&mut self, f: F)"));
+        assert!(output.contains("AddressBuilder<'a, S>"));
+        assert!(output.contains("track_message"));
+    }
+
+    #[test]
+    fn test_write_message_builder_field_message_repeated() {
+        let mut buf = Vec::new();
+        let mut desc = create_test_descriptor();
+        desc.messages.push(Message {
+            name: "Item".to_string(),
+            package: "test".to_string(),
+            module: "test".to_string(),
+            ..Default::default()
+        });
+        let msg = Message::default();
+        let field = Field {
+            name: "items".to_string(),
+            number: 1,
+            typ: FieldType::Message(MessageIndex { indexes: vec![0] }),
+            frequency: Frequency::Proto3Frequency(Proto3Frequency::Repeated),
+            default: None,
+            packed: None,
+            deprecated: false,
+        };
+        msg.write_message_builder_field_message(&mut buf, &field, &desc)
+            .unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        // Repeated message fields get add_ prefix
+        assert!(output.contains("pub fn add_items<F>(&mut self, f: F)"));
+    }
+
+    #[test]
+    fn test_write_message_builder_field_map_scalar_scalar() {
+        let mut buf = Vec::new();
+        let desc = create_test_descriptor();
+        let msg = Message::default();
+        let field = create_map_field("data", 1, FieldType::String, FieldType::Int32);
+        msg.write_message_builder_field_map(&mut buf, &field, &desc)
+            .unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("pub fn data(&mut self) -> GenericMapBuilder<'_, S, str, i32>"));
+        assert!(output.contains("GenericMapBuilder::new(1, self.writer)"));
+    }
+
+    #[test]
+    fn test_write_message_builder_field_map_scalar_message() {
+        let mut buf = Vec::new();
+        let mut desc = create_test_descriptor();
+        desc.messages.push(Message {
+            name: "Value".to_string(),
+            package: "test".to_string(),
+            module: "test".to_string(),
+            ..Default::default()
+        });
+        let msg = Message::default();
+        let field = Field {
+            name: "values".to_string(),
+            number: 1,
+            typ: FieldType::Map(
+                Box::new(FieldType::String),
+                Box::new(FieldType::Message(MessageIndex { indexes: vec![0] })),
+            ),
+            frequency: Frequency::Proto3Frequency(Proto3Frequency::Map),
+            default: None,
+            packed: None,
+            deprecated: false,
+        };
+        msg.write_message_builder_field_map(&mut buf, &field, &desc)
+            .unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        // Module prefix is included: test::Value
+        assert!(
+            output
+                .contains("pub fn values(&mut self) -> MessageMapBuilder<'_, S, str, test::Value>")
+        );
+        assert!(output.contains("MessageMapBuilder::new(1, self.writer)"));
+    }
+
+    #[test]
+    fn test_write_message_builder_field_map_error_non_scalar_key() {
+        let mut buf = Vec::new();
+        let mut desc = create_test_descriptor();
+        desc.messages.push(Message {
+            name: "Key".to_string(),
+            ..Default::default()
+        });
+        let msg = Message::default();
+        // Map with message key (invalid)
+        let field = Field {
+            name: "invalid".to_string(),
+            number: 1,
+            typ: FieldType::Map(
+                Box::new(FieldType::Message(MessageIndex { indexes: vec![0] })),
+                Box::new(FieldType::Int32),
+            ),
+            frequency: Frequency::Proto3Frequency(Proto3Frequency::Map),
+            default: None,
+            packed: None,
+            deprecated: false,
+        };
+        let result = msg.write_message_builder_field_map(&mut buf, &field, &desc);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_write_message_builder_with_multiple_field_types() {
+        let mut buf = Vec::new();
+        let desc = create_test_descriptor();
+        let msg = Message {
+            name: "Complex".to_string(),
+            fields: vec![
+                create_simple_field("id", 1, FieldType::Int32),
+                create_simple_field("name", 2, FieldType::String),
+                create_simple_field("active", 3, FieldType::Bool),
+                create_simple_field("score", 4, FieldType::Double),
+            ],
+            ..Default::default()
+        };
+        msg.write_message_builder(&mut buf, &desc).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("fn id(&mut self, value: i32)"));
+        assert!(output.contains("fn name(&mut self, value: &str)"));
+        assert!(output.contains("fn active(&mut self, value: bool)"));
+        assert!(output.contains("fn score(&mut self, value: f64)"));
+    }
+
+    // ============ ONEOF BUILDER CODE GENERATION TESTS ============
+
+    #[test]
+    fn test_write_oneof_builder() {
+        let mut buf = Vec::new();
+        let desc = create_test_descriptor();
+        let msg = Message::default();
+        let oneof = OneOf {
+            name: "payload".to_string(),
+            fields: vec![
+                create_simple_field("text_value", 1, FieldType::String),
+                create_simple_field("int_value", 2, FieldType::Int32),
+            ],
+            ..Default::default()
+        };
+        msg.write_oneof_builder(&mut buf, &oneof, &desc).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("pub struct PayloadOneOfBuilder<'w, S: ScratchBuffer>"));
+        assert!(output.contains("impl<'w, S: ScratchBuffer> PayloadOneOfBuilder<'w, S>"));
+        assert!(output.contains("pub fn new(writer: &'w mut ScratchWriter<S>) -> Self"));
+        assert!(output.contains("fn text_value(&mut self"));
+        assert!(output.contains("fn int_value(&mut self"));
+    }
+
+    #[test]
+    fn test_write_oneof_variant_scalar() {
+        let mut buf = Vec::new();
+        let desc = create_test_descriptor();
+        let msg = Message::default();
+        let field = create_simple_field("name", 1, FieldType::String);
+        msg.write_oneof_variant_scalar(&mut buf, &field, &desc)
+            .unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("pub fn name(&mut self, value: &str) -> ProtoResult<()>"));
+        assert!(output.contains("write_with_tag("));
+        assert!(output.contains("write_string(value)"));
+    }
+
+    #[test]
+    fn test_write_oneof_variant_scalar_primitive() {
+        let mut buf = Vec::new();
+        let desc = create_test_descriptor();
+        let msg = Message::default();
+        let field = create_simple_field("count", 1, FieldType::Int32);
+        msg.write_oneof_variant_scalar(&mut buf, &field, &desc)
+            .unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        // Primitive types are not borrowed
+        assert!(output.contains("pub fn count(&mut self, value: i32) -> ProtoResult<()>"));
+        assert!(output.contains("write_int32(value)"));
+    }
+
+    #[test]
+    fn test_write_oneof_variant_message() {
+        let mut buf = Vec::new();
+        let mut desc = create_test_descriptor();
+        desc.messages.push(Message {
+            name: "SubMessage".to_string(),
+            package: "test".to_string(),
+            module: "test".to_string(),
+            ..Default::default()
+        });
+        let msg = Message::default();
+        let field = Field {
+            name: "sub_msg".to_string(),
+            number: 1,
+            typ: FieldType::Message(MessageIndex { indexes: vec![0] }),
+            frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+            default: None,
+            packed: None,
+            deprecated: false,
+        };
+        msg.write_oneof_variant_message(&mut buf, &field, &desc)
+            .unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("pub fn sub_msg<F>(&mut self, f: F) -> ProtoResult<()>"));
+        assert!(output.contains("test::SubMessageBuilder<'a, S>"));
+        assert!(output.contains("track_message"));
+    }
+
+    #[test]
+    fn test_write_message_builder_oneof() {
+        let mut buf = Vec::new();
+        let desc = create_test_descriptor();
+        let msg = Message::default();
+        let oneof = OneOf {
+            name: "my_choice".to_string(),
+            fields: vec![create_simple_field("option_a", 1, FieldType::Int32)],
+            ..Default::default()
+        };
+        msg.write_message_builder_oneof(&mut buf, &oneof, &desc)
+            .unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("pub fn my_choice<F>(&mut self, f: F)"));
+        assert!(output.contains("MyChoiceOneOfBuilder<'_, S>"));
+        assert!(output.contains("MyChoiceOneOfBuilder::new(self.writer)"));
+    }
+
+    // ============ COMMON USES TESTS ============
+
+    #[test]
+    fn test_write_common_uses_with_scalar_map() {
+        let mut buf = Vec::new();
+        let messages = vec![Message {
+            name: "Test".to_string(),
+            imported: false,
+            fields: vec![create_map_field(
+                "data",
+                1,
+                FieldType::String,
+                FieldType::Int32,
+            )],
+            ..Default::default()
+        }];
+        Message::write_common_uses(&mut buf, &messages).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("use ::piecemeal::GenericMapBuilder;"));
+        assert!(!output.contains("MessageMapBuilder"));
+    }
+
+    #[test]
+    fn test_write_common_uses_with_message_map() {
+        let mut buf = Vec::new();
+        let messages = vec![Message {
+            name: "Test".to_string(),
+            imported: false,
+            fields: vec![Field {
+                name: "data".to_string(),
+                number: 1,
+                typ: FieldType::Map(
+                    Box::new(FieldType::String),
+                    Box::new(FieldType::Message(MessageIndex::default())),
+                ),
+                frequency: Frequency::Proto3Frequency(Proto3Frequency::Map),
+                default: None,
+                packed: None,
+                deprecated: false,
+            }],
+            ..Default::default()
+        }];
+        Message::write_common_uses(&mut buf, &messages).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("use ::piecemeal::MessageMapBuilder;"));
+    }
+
+    #[test]
+    fn test_write_common_uses_with_repeated() {
+        let mut buf = Vec::new();
+        let messages = vec![Message {
+            name: "Test".to_string(),
+            imported: false,
+            fields: vec![create_repeated_field("items", 1, FieldType::Int32)],
+            ..Default::default()
+        }];
+        Message::write_common_uses(&mut buf, &messages).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("use ::piecemeal::RepeatedBuilder;"));
+    }
+
+    #[test]
+    fn test_write_common_uses_skips_imported() {
+        let mut buf = Vec::new();
+        let messages = vec![Message {
+            name: "Test".to_string(),
+            imported: true, // imported messages should be skipped
+            fields: vec![create_repeated_field("items", 1, FieldType::Int32)],
+            ..Default::default()
+        }];
+        Message::write_common_uses(&mut buf, &messages).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        // Should not include any imports since message is imported
+        assert!(!output.contains("RepeatedBuilder"));
+    }
+
+    #[test]
+    fn test_write_common_uses_empty() {
+        let mut buf = Vec::new();
+        let messages = vec![Message {
+            name: "Test".to_string(),
+            imported: false,
+            fields: vec![create_simple_field("name", 1, FieldType::String)],
+            ..Default::default()
+        }];
+        Message::write_common_uses(&mut buf, &messages).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        // No maps or repeated fields, so no extra imports
+        assert!(!output.contains("GenericMapBuilder"));
+        assert!(!output.contains("MessageMapBuilder"));
+        assert!(!output.contains("RepeatedBuilder"));
+    }
+
+    // ============ TYPE RESOLUTION TESTS ============
+
+    #[test]
+    fn test_resolve_types_simple_message_reference() {
+        let mut desc = FileDescriptor {
+            package: "test".to_string(),
+            module: "test".to_string(),
+            messages: vec![
+                Message {
+                    name: "Inner".to_string(),
+                    package: "test".to_string(),
+                    ..Default::default()
+                },
+                Message {
+                    name: "Outer".to_string(),
+                    package: "test".to_string(),
+                    fields: vec![Field {
+                        name: "inner".to_string(),
+                        number: 1,
+                        typ: FieldType::MessageOrEnum("Inner".to_string()),
+                        frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+                        default: None,
+                        packed: None,
+                        deprecated: false,
+                    }],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        desc.resolve_types().unwrap();
+        // Verify MessageOrEnum was resolved to Message
+        assert!(matches!(
+            desc.messages[1].fields[0].typ,
+            FieldType::Message(_)
+        ));
+    }
+
+    #[test]
+    fn test_resolve_types_enum_reference() {
+        let mut desc = FileDescriptor {
+            package: "test".to_string(),
+            module: "test".to_string(),
+            enums: vec![Enumeration {
+                name: "Status".to_string(),
+                package: "test".to_string(),
+                fields: vec![("UNKNOWN".to_string(), 0)],
+                ..Default::default()
+            }],
+            messages: vec![Message {
+                name: "Request".to_string(),
+                package: "test".to_string(),
+                fields: vec![Field {
+                    name: "status".to_string(),
+                    number: 1,
+                    typ: FieldType::MessageOrEnum("Status".to_string()),
+                    frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+                    default: None,
+                    packed: None,
+                    deprecated: false,
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        desc.resolve_types().unwrap();
+        // Verify MessageOrEnum was resolved to Enum
+        assert!(matches!(desc.messages[0].fields[0].typ, FieldType::Enum(_)));
+    }
+
+    #[test]
+    fn test_resolve_types_absolute_reference() {
+        let mut desc = FileDescriptor {
+            package: "test".to_string(),
+            module: "test".to_string(),
+            messages: vec![
+                Message {
+                    name: "Inner".to_string(),
+                    package: "test".to_string(),
+                    ..Default::default()
+                },
+                Message {
+                    name: "Outer".to_string(),
+                    package: "test".to_string(),
+                    fields: vec![Field {
+                        name: "inner".to_string(),
+                        number: 1,
+                        // Absolute reference with leading dot
+                        typ: FieldType::MessageOrEnum(".test.Inner".to_string()),
+                        frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+                        default: None,
+                        packed: None,
+                        deprecated: false,
+                    }],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        desc.resolve_types().unwrap();
+        assert!(matches!(
+            desc.messages[1].fields[0].typ,
+            FieldType::Message(_)
+        ));
+    }
+
+    #[test]
+    fn test_resolve_types_in_map() {
+        let mut desc = FileDescriptor {
+            package: "test".to_string(),
+            module: "test".to_string(),
+            messages: vec![
+                Message {
+                    name: "Value".to_string(),
+                    package: "test".to_string(),
+                    ..Default::default()
+                },
+                Message {
+                    name: "Container".to_string(),
+                    package: "test".to_string(),
+                    fields: vec![Field {
+                        name: "items".to_string(),
+                        number: 1,
+                        typ: FieldType::Map(
+                            Box::new(FieldType::String),
+                            Box::new(FieldType::MessageOrEnum("Value".to_string())),
+                        ),
+                        frequency: Frequency::Proto3Frequency(Proto3Frequency::Map),
+                        default: None,
+                        packed: None,
+                        deprecated: false,
+                    }],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        desc.resolve_types().unwrap();
+        // Verify the map value type was resolved
+        if let FieldType::Map(_, value) = &desc.messages[1].fields[0].typ {
+            assert!(matches!(**value, FieldType::Message(_)));
+        } else {
+            panic!("Expected Map field type");
+        }
+    }
+
+    #[test]
+    fn test_resolve_types_not_found() {
+        let mut desc = FileDescriptor {
+            package: "test".to_string(),
+            module: "test".to_string(),
+            messages: vec![Message {
+                name: "Outer".to_string(),
+                package: "test".to_string(),
+                fields: vec![Field {
+                    name: "unknown".to_string(),
+                    number: 1,
+                    typ: FieldType::MessageOrEnum("NonExistent".to_string()),
+                    frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+                    default: None,
+                    packed: None,
+                    deprecated: false,
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let result = desc.resolve_types();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_full_names() {
+        let mut desc = FileDescriptor {
+            package: "test".to_string(),
+            module: "test".to_string(),
+            messages: vec![Message {
+                name: "First".to_string(),
+                package: "test".to_string(),
+                nested_messages: vec![Message {
+                    name: "Nested".to_string(),
+                    package: "test.First".to_string(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            enums: vec![Enumeration {
+                name: "Status".to_string(),
+                package: "test".to_string(),
+                fields: vec![("OK".to_string(), 0)],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let (full_msgs, full_enums) = desc.get_full_names();
+        assert!(full_msgs.contains_key("test.First"));
+        assert!(full_msgs.contains_key("test.First.Nested"));
+        assert!(full_enums.contains_key("test.Status"));
+    }
+
+    #[test]
+    fn test_resolve_types_nested_message() {
+        let mut desc = FileDescriptor {
+            package: "test".to_string(),
+            module: "test".to_string(),
+            messages: vec![Message {
+                name: "Outer".to_string(),
+                package: "test".to_string(),
+                nested_messages: vec![Message {
+                    name: "Inner".to_string(),
+                    package: "test.Outer".to_string(),
+                    fields: vec![Field {
+                        name: "value".to_string(),
+                        number: 1,
+                        typ: FieldType::Int32,
+                        frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+                        default: None,
+                        packed: None,
+                        deprecated: false,
+                    }],
+                    ..Default::default()
+                }],
+                fields: vec![Field {
+                    name: "inner".to_string(),
+                    number: 1,
+                    typ: FieldType::MessageOrEnum("Inner".to_string()),
+                    frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+                    default: None,
+                    packed: None,
+                    deprecated: false,
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        desc.resolve_types().unwrap();
+        // Verify nested message reference was resolved
+        assert!(matches!(
+            desc.messages[0].fields[0].typ,
+            FieldType::Message(_)
+        ));
+    }
+
+    // ============ HELPER METHOD TESTS ============
+
+    #[test]
+    fn test_message_set_imported() {
+        let mut msg = Message {
+            name: "Test".to_string(),
+            imported: false,
+            nested_messages: vec![Message {
+                name: "Nested".to_string(),
+                imported: false,
+                ..Default::default()
+            }],
+            nested_enums: vec![Enumeration {
+                name: "MyEnum".to_string(),
+                imported: false,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        msg.set_imported();
+        assert!(msg.imported);
+        assert!(msg.nested_messages[0].imported);
+        assert!(msg.nested_enums[0].imported);
+    }
+
+    #[test]
+    fn test_set_repeated_as_packed() {
+        let mut msg = Message {
+            fields: vec![
+                Field {
+                    name: "values".to_string(),
+                    number: 1,
+                    typ: FieldType::Int32,
+                    frequency: Frequency::Proto3Frequency(Proto3Frequency::Repeated),
+                    packed: None,
+                    default: None,
+                    deprecated: false,
+                },
+                Field {
+                    name: "names".to_string(),
+                    number: 2,
+                    typ: FieldType::String, // non-primitive
+                    frequency: Frequency::Proto3Frequency(Proto3Frequency::Repeated),
+                    packed: None,
+                    default: None,
+                    deprecated: false,
+                },
+            ],
+            ..Default::default()
+        };
+        msg.set_repeated_as_packed();
+        // Primitive repeated field should be packed
+        assert_eq!(msg.fields[0].packed, Some(true));
+        // Non-primitive repeated field should not be packed
+        assert_eq!(msg.fields[1].packed, None);
+    }
+
+    #[test]
+    fn test_message_sanitize_names() {
+        let mut msg = Message {
+            name: "type".to_string(),     // Rust keyword
+            package: "match".to_string(), // Rust keyword
+            fields: vec![Field {
+                name: "fn".to_string(), // Rust keyword
+                number: 1,
+                typ: FieldType::Int32,
+                frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+                default: None,
+                packed: None,
+                deprecated: false,
+            }],
+            oneofs: vec![OneOf {
+                name: "impl".to_string(), // Rust keyword
+                fields: vec![Field {
+                    name: "struct".to_string(), // Rust keyword
+                    number: 2,
+                    typ: FieldType::String,
+                    frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+                    default: None,
+                    packed: None,
+                    deprecated: false,
+                }],
+                ..Default::default()
+            }],
+            nested_messages: vec![Message {
+                name: "mod".to_string(), // Rust keyword
+                ..Default::default()
+            }],
+            nested_enums: vec![Enumeration {
+                name: "crate".to_string(), // Rust keyword
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        msg.sanitize_names();
+        assert_eq!(msg.name, "type_");
+        assert_eq!(msg.package, "match_");
+        assert_eq!(msg.fields[0].name, "fn_");
+        assert_eq!(msg.oneofs[0].name, "impl_");
+        assert_eq!(msg.oneofs[0].fields[0].name, "struct_");
+        assert_eq!(msg.nested_messages[0].name, "mod_");
+        assert_eq!(msg.nested_enums[0].name, "crate_");
+    }
+
+    #[test]
+    fn test_struct_rust_type_primitives() {
+        let desc = FileDescriptor::default();
+        assert_eq!(FieldType::Int32.struct_rust_type(&desc), "i32");
+        assert_eq!(FieldType::Int64.struct_rust_type(&desc), "i64");
+        assert_eq!(FieldType::Uint32.struct_rust_type(&desc), "u32");
+        assert_eq!(FieldType::Uint64.struct_rust_type(&desc), "u64");
+        assert_eq!(FieldType::Sint32.struct_rust_type(&desc), "i32");
+        assert_eq!(FieldType::Sint64.struct_rust_type(&desc), "i64");
+        assert_eq!(FieldType::Fixed32.struct_rust_type(&desc), "u32");
+        assert_eq!(FieldType::Fixed64.struct_rust_type(&desc), "u64");
+        assert_eq!(FieldType::Sfixed32.struct_rust_type(&desc), "i32");
+        assert_eq!(FieldType::Sfixed64.struct_rust_type(&desc), "i64");
+        assert_eq!(FieldType::Float.struct_rust_type(&desc), "f32");
+        assert_eq!(FieldType::Double.struct_rust_type(&desc), "f64");
+        assert_eq!(FieldType::Bool.struct_rust_type(&desc), "bool");
+        assert_eq!(FieldType::String.struct_rust_type(&desc), "String");
+        assert_eq!(FieldType::Bytes.struct_rust_type(&desc), "Vec<u8>");
+    }
+
+    #[test]
+    fn test_write_rust_type() {
+        let desc = FileDescriptor::default();
+        assert_eq!(FieldType::Int32.write_rust_type(&desc), "i32");
+        assert_eq!(FieldType::String.write_rust_type(&desc), "str");
+        assert_eq!(FieldType::Bytes.write_rust_type(&desc), "[u8]");
+        assert_eq!(FieldType::Bool.write_rust_type(&desc), "bool");
+        assert_eq!(FieldType::Double.write_rust_type(&desc), "f64");
+    }
+
+    #[test]
+    fn test_get_write_primitives() {
+        assert_eq!(FieldType::Int32.get_write("v", false), "write_int32(v)");
+        assert_eq!(FieldType::Int32.get_write("v", true), "write_int32(*v)");
+        assert_eq!(FieldType::String.get_write("v", false), "write_string(v)");
+        assert_eq!(FieldType::Bytes.get_write("v", false), "write_bytes(v)");
+        assert_eq!(FieldType::Bool.get_write("v", false), "write_bool(v)");
+        assert_eq!(FieldType::Double.get_write("v", false), "write_double(v)");
+        assert_eq!(FieldType::Float.get_write("v", false), "write_float(v)");
+        assert_eq!(FieldType::Uint32.get_write("v", false), "write_uint32(v)");
+        assert_eq!(FieldType::Uint64.get_write("v", false), "write_uint64(v)");
+        assert_eq!(FieldType::Sint32.get_write("v", false), "write_sint32(v)");
+        assert_eq!(FieldType::Sint64.get_write("v", false), "write_sint64(v)");
+        assert_eq!(FieldType::Fixed32.get_write("v", false), "write_fixed32(v)");
+        assert_eq!(FieldType::Fixed64.get_write("v", false), "write_fixed64(v)");
+        assert_eq!(
+            FieldType::Sfixed32.get_write("v", false),
+            "write_sfixed32(v)"
+        );
+        assert_eq!(
+            FieldType::Sfixed64.get_write("v", false),
+            "write_sfixed64(v)"
+        );
+    }
+
+    #[test]
+    fn test_get_write_enum() {
+        let e_idx = EnumIndex::default();
+        let field_type = FieldType::Enum(e_idx);
+        assert_eq!(field_type.get_write("v", false), "write_enum(v as i32)");
+        assert_eq!(field_type.get_write("v", true), "write_enum(*v as i32)");
+    }
+
+    #[test]
+    fn test_message_set_package() {
+        let mut msg = Message {
+            name: "Outer".to_string(),
+            nested_messages: vec![Message {
+                name: "Inner".to_string(),
+                ..Default::default()
+            }],
+            nested_enums: vec![Enumeration {
+                name: "Status".to_string(),
+                fields: vec![("OK".to_string(), 0)],
+                ..Default::default()
+            }],
+            oneofs: vec![OneOf {
+                name: "choice".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        msg.set_package("foo.bar", "foo.bar");
+        assert_eq!(msg.package, "foo.bar");
+        assert_eq!(msg.module, "foo.bar");
+        assert_eq!(msg.nested_messages[0].package, "foo.bar.Outer");
+        assert_eq!(msg.nested_messages[0].module, "foo.bar.outer");
+        assert_eq!(msg.nested_enums[0].package, "foo.bar.Outer");
+        assert_eq!(msg.nested_enums[0].module, "foo.bar.outer");
+        assert_eq!(msg.oneofs[0].package, "foo.bar");
+        assert_eq!(msg.oneofs[0].module, "foo.bar");
+    }
+
+    #[test]
+    fn test_message_set_package_empty() {
+        let mut msg = Message {
+            name: "Root".to_string(),
+            ..Default::default()
+        };
+        msg.set_package("", "myfile");
+        // When package is empty, module is set
+        assert_eq!(msg.module, "myfile");
+        assert!(msg.package.is_empty());
+    }
+
+    #[test]
+    fn test_get_modules_helper() {
+        let desc = FileDescriptor {
+            package: "test".to_string(),
+            ..Default::default()
+        };
+        let result = get_modules("foo.bar", false, &desc);
+        assert_eq!(result, "foo::bar::");
+    }
+
+    #[test]
+    fn test_get_modules_imported() {
+        let desc = FileDescriptor {
+            package: "test".to_string(),
+            ..Default::default()
+        };
+        // Imported modules should not skip any segments
+        let result = get_modules("other.pkg", true, &desc);
+        assert_eq!(result, "other::pkg::");
+    }
+
+    #[test]
+    fn test_get_modules_empty_package() {
+        let desc = FileDescriptor {
+            package: "".to_string(),
+            ..Default::default()
+        };
+        // When package is empty and not imported, skip first segment
+        let result = get_modules("myfile.nested", false, &desc);
+        assert_eq!(result, "nested::");
+    }
+
+    #[test]
+    fn test_message_all_fields() {
+        let msg = Message {
+            fields: vec![
+                create_simple_field("a", 1, FieldType::Int32),
+                create_simple_field("b", 2, FieldType::String),
+            ],
+            oneofs: vec![OneOf {
+                name: "choice".to_string(),
+                fields: vec![
+                    create_simple_field("c", 3, FieldType::Bool),
+                    create_simple_field("d", 4, FieldType::Double),
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let all: Vec<_> = msg.all_fields().collect();
+        assert_eq!(all.len(), 4);
+        assert_eq!(all[0].name, "a");
+        assert_eq!(all[1].name, "b");
+        assert_eq!(all[2].name, "c");
+        assert_eq!(all[3].name, "d");
+    }
+
+    #[test]
+    fn test_file_descriptor_set_defaults_proto3() {
+        let mut desc = FileDescriptor {
+            syntax: Syntax::Proto3,
+            messages: vec![Message {
+                name: "Test".to_string(),
+                fields: vec![Field {
+                    name: "values".to_string(),
+                    number: 1,
+                    typ: FieldType::Int32,
+                    frequency: Frequency::Proto3Frequency(Proto3Frequency::Repeated),
+                    packed: None,
+                    default: None,
+                    deprecated: false,
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        desc.set_defaults().unwrap();
+        // Proto3 repeated primitives should default to packed
+        assert_eq!(desc.messages[0].fields[0].packed, Some(true));
+    }
+
+    #[test]
+    fn test_file_descriptor_sanitize_names() {
+        let mut desc = FileDescriptor {
+            messages: vec![Message {
+                name: "type".to_string(),
+                ..Default::default()
+            }],
+            enums: vec![Enumeration {
+                name: "match".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        desc.sanitize_names();
+        assert_eq!(desc.messages[0].name, "type_");
+        assert_eq!(desc.enums[0].name, "match_");
+    }
+
+    // ============ FILE I/O TESTS ============
+
+    #[test]
+    fn test_update_mod_file_creates_new() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.rs");
+        std::fs::write(&file, "// content").unwrap();
+        update_mod_file(&file).unwrap();
+
+        let mod_file = dir.path().join("mod.rs");
+        let content = std::fs::read_to_string(&mod_file).unwrap();
+        assert!(content.contains(MAGIC_HEADER));
+        assert!(content.contains("pub mod test;"));
+    }
+
+    #[test]
+    fn test_update_mod_file_appends_existing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mod_file = dir.path().join("mod.rs");
+        std::fs::write(&mod_file, format!("{}\npub mod existing;", MAGIC_HEADER)).unwrap();
+
+        let file = dir.path().join("new.rs");
+        std::fs::write(&file, "// content").unwrap();
+        update_mod_file(&file).unwrap();
+
+        let content = std::fs::read_to_string(&mod_file).unwrap();
+        assert!(content.contains("pub mod existing;"));
+        assert!(content.contains("pub mod new;"));
+    }
+
+    #[test]
+    fn test_update_mod_file_skips_non_generated() {
+        let dir = tempfile::tempdir().unwrap();
+        let mod_file = dir.path().join("mod.rs");
+        // Write a mod.rs without magic header (user-created)
+        std::fs::write(&mod_file, "// User's custom mod.rs\npub mod foo;").unwrap();
+
+        let file = dir.path().join("bar.rs");
+        std::fs::write(&file, "// content").unwrap();
+        update_mod_file(&file).unwrap();
+
+        // Should not modify user's mod.rs
+        let content = std::fs::read_to_string(&mod_file).unwrap();
+        assert!(!content.contains("pub mod bar;"));
+        assert!(content.contains("pub mod foo;"));
+    }
+
+    #[test]
+    fn test_update_mod_file_skips_duplicate() {
+        let dir = tempfile::tempdir().unwrap();
+        let mod_file = dir.path().join("mod.rs");
+        std::fs::write(&mod_file, format!("{}\npub mod test;", MAGIC_HEADER)).unwrap();
+
+        let file = dir.path().join("test.rs");
+        std::fs::write(&file, "// content").unwrap();
+        update_mod_file(&file).unwrap();
+
+        // Should not add duplicate
+        let content = std::fs::read_to_string(&mod_file).unwrap();
+        let count = content.matches("pub mod test;").count();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_get_file_stem_basic() {
+        let path = std::path::Path::new("/foo/bar/test.proto");
+        assert_eq!(get_file_stem(path).unwrap(), "test");
+    }
+
+    #[test]
+    fn test_get_file_stem_sanitizes_special_chars() {
+        let path = std::path::Path::new("/foo/test-file.proto");
+        assert_eq!(get_file_stem(path).unwrap(), "test_file");
+
+        let path = std::path::Path::new("/foo/test.file.proto");
+        assert_eq!(get_file_stem(path).unwrap(), "test_file");
+    }
+
+    #[test]
+    fn test_get_file_stem_sanitizes_keywords() {
+        let path = std::path::Path::new("/foo/type.proto");
+        assert_eq!(get_file_stem(path).unwrap(), "type_");
+
+        let path = std::path::Path::new("/foo/fn.proto");
+        assert_eq!(get_file_stem(path).unwrap(), "fn_");
+    }
+
+    // ============ REMAINING TESTS ============
+
+    #[test]
+    fn test_message_index_navigation() {
+        let desc = FileDescriptor {
+            messages: vec![Message {
+                name: "First".to_string(),
+                nested_messages: vec![Message {
+                    name: "Nested".to_string(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut index = MessageIndex::default();
+        index.push(0);
+        assert_eq!(index.get_message(&desc).name, "First");
+        index.push(0);
+        assert_eq!(index.get_message(&desc).name, "Nested");
+        index.pop();
+        assert_eq!(index.get_message(&desc).name, "First");
+    }
+
+    #[test]
+    fn test_enum_index_get_enum() {
+        let desc = FileDescriptor {
+            enums: vec![Enumeration {
+                name: "Status".to_string(),
+                fields: vec![("OK".to_string(), 0)],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let index = EnumIndex {
+            msg_index: MessageIndex::default(),
+            index: 0,
+        };
+        assert_eq!(index.get_enum(&desc).name, "Status");
+    }
+
+    #[test]
+    fn test_enum_index_get_nested_enum() {
+        let desc = FileDescriptor {
+            messages: vec![Message {
+                name: "Container".to_string(),
+                nested_enums: vec![Enumeration {
+                    name: "InnerStatus".to_string(),
+                    fields: vec![("OK".to_string(), 0)],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut msg_index = MessageIndex::default();
+        msg_index.push(0);
+        let index = EnumIndex {
+            msg_index,
+            index: 0,
+        };
+        assert_eq!(index.get_enum(&desc).name, "InnerStatus");
+    }
+
+    #[test]
+    fn test_sanity_checks_reserved_field_name_conflict() {
+        let desc = FileDescriptor::default();
+        let msg = Message {
+            name: "Test".to_string(),
+            reserved_names: Some(vec!["forbidden".to_string()]),
+            fields: vec![Field {
+                name: "forbidden".to_string(),
+                number: 1,
+                typ: FieldType::Int32,
+                frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+                default: None,
+                packed: None,
+                deprecated: false,
+            }],
+            ..Default::default()
+        };
+        let result = msg.sanity_checks(&desc);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sanity_checks_reserved_field_number_conflict() {
+        let desc = FileDescriptor::default();
+        let msg = Message {
+            name: "Test".to_string(),
+            reserved_nums: Some(vec![1, 2, 3]),
+            fields: vec![Field {
+                name: "value".to_string(),
+                number: 2,
+                typ: FieldType::Int32,
+                frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+                default: None,
+                packed: None,
+                deprecated: false,
+            }],
+            ..Default::default()
+        };
+        let result = msg.sanity_checks(&desc);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sanity_checks_valid_message() {
+        let desc = FileDescriptor::default();
+        let msg = Message {
+            name: "Test".to_string(),
+            reserved_names: Some(vec!["old_field".to_string()]),
+            reserved_nums: Some(vec![10, 11, 12]),
+            fields: vec![Field {
+                name: "current_field".to_string(),
+                number: 1,
+                typ: FieldType::Int32,
+                frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+                default: None,
+                packed: None,
+                deprecated: false,
+            }],
+            ..Default::default()
+        };
+        let result = msg.sanity_checks(&desc);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_sanity_checks_invalid_default_enum() {
+        let mut desc = FileDescriptor {
+            enums: vec![Enumeration {
+                name: "Status".to_string(),
+                package: "test".to_string(),
+                fields: vec![("UNKNOWN".to_string(), 0), ("OK".to_string(), 1)],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        // Set up the enum index
+        desc.enums[0].index = EnumIndex {
+            msg_index: MessageIndex::default(),
+            index: 0,
+        };
+        let msg = Message {
+            name: "Test".to_string(),
+            fields: vec![Field {
+                name: "status".to_string(),
+                number: 1,
+                typ: FieldType::Enum(EnumIndex {
+                    msg_index: MessageIndex::default(),
+                    index: 0,
+                }),
+                frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+                default: Some("INVALID_VALUE".to_string()), // This value doesn't exist in the enum
+                packed: None,
+                deprecated: false,
+            }],
+            ..Default::default()
+        };
+        let result = msg.sanity_checks(&desc);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_message_get_modules() {
+        let desc = FileDescriptor {
+            package: "test".to_string(),
+            ..Default::default()
+        };
+        let msg = Message {
+            name: "Test".to_string(),
+            module: "foo.bar".to_string(),
+            imported: false,
+            ..Default::default()
+        };
+        assert_eq!(msg.get_modules(&desc), "foo::bar::");
+    }
+
+    #[test]
+    fn test_file_descriptor_sanity_checks() {
+        let desc = FileDescriptor {
+            messages: vec![Message {
+                name: "Valid".to_string(),
+                fields: vec![create_simple_field("id", 1, FieldType::Int32)],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let result = desc.sanity_checks();
+        assert!(result.is_ok());
+    }
+
+    // ============ MESSAGE INDEX MUTABLE ACCESS TESTS ============
+
+    #[test]
+    fn test_message_index_get_message_mut() {
+        let mut desc = FileDescriptor {
+            messages: vec![Message {
+                name: "First".to_string(),
+                nested_messages: vec![Message {
+                    name: "Nested".to_string(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut index = MessageIndex::default();
+        index.push(0);
+        {
+            let msg = index.get_message_mut(&mut desc);
+            msg.name = "Modified".to_string();
+        }
+        assert_eq!(desc.messages[0].name, "Modified");
+    }
+
+    #[test]
+    fn test_message_index_get_nested_message_mut() {
+        let mut desc = FileDescriptor {
+            messages: vec![Message {
+                name: "Parent".to_string(),
+                nested_messages: vec![Message {
+                    name: "Child".to_string(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut index = MessageIndex::default();
+        index.push(0);
+        index.push(0);
+        {
+            let msg = index.get_message_mut(&mut desc);
+            msg.name = "ModifiedChild".to_string();
+        }
+        assert_eq!(desc.messages[0].nested_messages[0].name, "ModifiedChild");
+    }
+
+    // ============ MESSAGE WRITE TESTS ============
+
+    #[test]
+    fn test_message_write_with_nested_messages() {
+        let desc = FileDescriptor::default();
+        let msg = Message {
+            name: "Outer".to_string(),
+            nested_messages: vec![Message {
+                name: "Inner".to_string(),
+                fields: vec![create_simple_field("value", 1, FieldType::Int32)],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut output = std::io::Cursor::new(Vec::new());
+        msg.write(&mut output, &desc).unwrap();
+        let generated = String::from_utf8(output.into_inner()).unwrap();
+        // Check that nested module is created
+        assert!(generated.contains("pub mod outer {"));
+        assert!(generated.contains("use super::*;"));
+    }
+
+    #[test]
+    fn test_message_write_with_nested_enums() {
+        let desc = FileDescriptor::default();
+        let mut enumeration = Enumeration {
+            name: "Status".to_string(),
+            fields: vec![("UNKNOWN".to_string(), 0), ("ACTIVE".to_string(), 1)],
+            ..Default::default()
+        };
+        // Need to call set_package to populate partially_qualified_fields
+        enumeration.set_package("", "");
+        let msg = Message {
+            name: "Container".to_string(),
+            nested_enums: vec![enumeration],
+            ..Default::default()
+        };
+        let mut output = std::io::Cursor::new(Vec::new());
+        msg.write(&mut output, &desc).unwrap();
+        let generated = String::from_utf8(output.into_inner()).unwrap();
+        // Check that nested module is created for enums
+        assert!(generated.contains("pub mod container {"));
+        assert!(generated.contains("pub enum Status"));
+    }
+
+    #[test]
+    fn test_message_write_with_oneofs() {
+        let desc = FileDescriptor::default();
+        let msg = Message {
+            name: "TestMessage".to_string(),
+            oneofs: vec![OneOf {
+                name: "choice".to_string(),
+                fields: vec![
+                    create_simple_field("option_a", 1, FieldType::Int32),
+                    create_simple_field("option_b", 2, FieldType::String),
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut output = std::io::Cursor::new(Vec::new());
+        msg.write(&mut output, &desc).unwrap();
+        let generated = String::from_utf8(output.into_inner()).unwrap();
+        // Check that oneof builder is generated
+        assert!(generated.contains("pub struct ChoiceOneOfBuilder"));
+    }
+
+    // ============ STRUCT_RUST_TYPE FOR MAP KEYS TESTS ============
+
+    #[test]
+    fn test_struct_rust_type_map_key_types() {
+        let desc = FileDescriptor::default();
+        // These types are used as map keys and need struct_rust_type coverage
+        assert_eq!(FieldType::Int64.struct_rust_type(&desc), "i64");
+        assert_eq!(FieldType::Sint64.struct_rust_type(&desc), "i64");
+        assert_eq!(FieldType::Sfixed64.struct_rust_type(&desc), "i64");
+        assert_eq!(FieldType::Uint32.struct_rust_type(&desc), "u32");
+        assert_eq!(FieldType::Fixed32.struct_rust_type(&desc), "u32");
+        assert_eq!(FieldType::Uint64.struct_rust_type(&desc), "u64");
+        assert_eq!(FieldType::Fixed64.struct_rust_type(&desc), "u64");
+        assert_eq!(FieldType::Float.struct_rust_type(&desc), "f32");
+    }
+
+    #[test]
+    fn test_struct_rust_type_enum() {
+        let desc = FileDescriptor {
+            enums: vec![Enumeration {
+                name: "MyEnum".to_string(),
+                fields: vec![("VALUE".to_string(), 0)],
+                module: "".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let enum_type = FieldType::Enum(EnumIndex {
+            msg_index: MessageIndex::default(),
+            index: 0,
+        });
+        assert_eq!(enum_type.struct_rust_type(&desc), "MyEnum");
+    }
+
+    // ============ ERROR PATH TESTS ============
+
+    #[test]
+    fn test_write_message_builder_field_map_error_map_in_map() {
+        let desc = FileDescriptor::default();
+        let msg = Message {
+            name: "BadMessage".to_string(),
+            ..Default::default()
+        };
+        // Create a field that is a map with a map as the value (invalid)
+        let field = Field {
+            name: "bad_map".to_string(),
+            number: 1,
+            typ: FieldType::Map(
+                Box::new(FieldType::String),
+                Box::new(FieldType::Map(
+                    Box::new(FieldType::String),
+                    Box::new(FieldType::Int32),
+                )),
+            ),
+            frequency: Frequency::Proto3Frequency(Proto3Frequency::Map),
+            default: None,
+            packed: None,
+            deprecated: false,
+        };
+        let mut output = std::io::Cursor::new(Vec::new());
+        let result = msg.write_message_builder_field_map(&mut output, &field, &desc);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("map values cannot be maps"));
+    }
+
+    #[test]
+    fn test_write_oneof_variant_method_error_map_in_oneof() {
+        let desc = FileDescriptor::default();
+        let msg = Message {
+            name: "BadMessage".to_string(),
+            ..Default::default()
+        };
+        // Create a field that is a map inside a oneof (invalid)
+        let field = Field {
+            name: "bad_field".to_string(),
+            number: 1,
+            typ: FieldType::Map(Box::new(FieldType::String), Box::new(FieldType::Int32)),
+            frequency: Frequency::Proto3Frequency(Proto3Frequency::Map),
+            default: None,
+            packed: None,
+            deprecated: false,
+        };
+        let mut output = std::io::Cursor::new(Vec::new());
+        let result = msg.write_oneof_variant_method(&mut output, &field, &desc);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("map fields are not allowed in oneof"));
+    }
 }

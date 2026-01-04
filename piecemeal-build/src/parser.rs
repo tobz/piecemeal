@@ -1461,4 +1461,127 @@ mod test {
         );
         assert!(e.is_ok());
     }
+
+    #[test]
+    fn test_rpc_service_parsing() {
+        // Test RPC function declaration with semicolon terminator
+        let input = r#"rpc SayHello (HelloRequest) returns (HelloReply);"#;
+        let result = rpc_function_declaration(input);
+        assert!(result.is_ok());
+
+        // Test RPC function declaration with empty body
+        let input = r#"rpc SayHello (HelloRequest) returns (HelloReply) {}"#;
+        let result = rpc_function_declaration(input);
+        assert!(result.is_ok());
+
+        // Test RPC function declaration with options in body
+        let input = r#"rpc SayHello (HelloRequest) returns (HelloReply) {
+            option deprecated = true;
+        }"#;
+        let result = rpc_function_declaration(input);
+        assert!(result.is_ok());
+
+        // Test full service block
+        let input = r#"service Greeter {
+            rpc SayHello (HelloRequest) returns (HelloReply);
+            rpc SayGoodbye (GoodbyeRequest) returns (GoodbyeReply) {}
+        }"#;
+        let result = rpc_service(input);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_field_options_packed() {
+        // Test explicit packed option
+        let input = r#"message Test {
+            repeated int32 values = 1 [packed=true];
+        }"#;
+        let result = message(Syntax::Proto3)(input);
+        assert!(result.is_ok());
+        let (_, msg) = result.unwrap();
+        assert_eq!(msg.fields[0].packed, Some(true));
+
+        // Test packed=false
+        let input = r#"message Test {
+            repeated int32 values = 1 [packed=false];
+        }"#;
+        let result = message(Syntax::Proto3)(input);
+        assert!(result.is_ok());
+        let (_, msg) = result.unwrap();
+        assert_eq!(msg.fields[0].packed, Some(false));
+    }
+
+    #[test]
+    fn test_field_options_deprecated() {
+        // Test deprecated option
+        let input = r#"message Test {
+            string old_field = 1 [deprecated=true];
+        }"#;
+        let result = message(Syntax::Proto3)(input);
+        assert!(result.is_ok());
+        let (_, msg) = result.unwrap();
+        assert!(msg.fields[0].deprecated);
+    }
+
+    #[test]
+    fn test_proto2_default_values() {
+        // Test proto2 default value for string (with quotes)
+        let input = r#"message Test {
+            optional string name = 1 [default="hello"];
+        }"#;
+        let result = message(Syntax::Proto2)(input);
+        assert!(result.is_ok());
+        let (_, msg) = result.unwrap();
+        assert_eq!(msg.fields[0].default, Some("hello".to_string()));
+
+        // Test proto2 default value for int
+        let input = r#"message Test {
+            optional int32 count = 1 [default=42];
+        }"#;
+        let result = message(Syntax::Proto2)(input);
+        assert!(result.is_ok());
+        let (_, msg) = result.unwrap();
+        assert_eq!(msg.fields[0].default, Some("42".to_string()));
+
+        // Test proto2 default value with single quotes
+        let input = r#"message Test {
+            optional string name = 1 [default='world'];
+        }"#;
+        let result = message(Syntax::Proto2)(input);
+        assert!(result.is_ok());
+        let (_, msg) = result.unwrap();
+        assert_eq!(msg.fields[0].default, Some("world".to_string()));
+    }
+
+    #[test]
+    fn test_proto3_default_frequency() {
+        // Test proto3 field without explicit frequency modifier
+        let input = r#"message Test {
+            int32 value = 1;
+        }"#;
+        let result = message(Syntax::Proto3)(input);
+        assert!(result.is_ok());
+        let (_, msg) = result.unwrap();
+        assert!(matches!(
+            msg.fields[0].frequency,
+            Frequency::Proto3Frequency(Proto3Frequency::Default)
+        ));
+    }
+
+    #[test]
+    fn test_proto3_required_field() {
+        // Proto3 'required' is deprecated but should still parse as optional
+        // Note: This tests that the parser handles proto3 required fields gracefully
+        let input = r#"message Test {
+            required int32 value = 1;
+        }"#;
+        let result = message(Syntax::Proto3)(input);
+        assert!(result.is_ok());
+        let (_, msg) = result.unwrap();
+        // Proto3 required fields are treated as optional
+        assert!(matches!(
+            msg.fields[0].frequency,
+            Frequency::Proto3Frequency(Proto3Frequency::Optional)
+        ));
+    }
 }
