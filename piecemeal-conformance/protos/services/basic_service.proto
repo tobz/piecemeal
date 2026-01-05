@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package services;
+
+// A simple service definition to test RPC parsing
+service Greeter {
+  // Sends a greeting
+  rpc SayHello (HelloRequest) returns (HelloReply);
+
+  // Sends multiple greetings
+  rpc SayHelloMany (HelloRequest) returns (HelloReply) {}
+}
+
+message HelloRequest {
+  string name = 1;
+}
+
+message HelloReply {
+  string message = 1;
+}

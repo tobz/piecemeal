@@ -1,6 +1,6 @@
 //! General builder types for working with certain field types.
 
-use std::marker::PhantomData;
+use std::{borrow::Borrow, marker::PhantomData};
 
 use crate::{
     ProtoResult, ScratchBuffer, ScratchWriter, Writer,
@@ -8,24 +8,39 @@ use crate::{
     types::{MessageBuilder, ProtobufValue, WireType},
 };
 
+/// A marker trait for types that can be used as map keys.
+///
+/// In Protocol Buffers, map keys can be any scalar type besides floating-point types and bytes.
+pub trait MapKey {}
+
+// TODO: sealed impl for `MapKey`
+impl MapKey for bool {}
+impl MapKey for i8 {}
+impl MapKey for i16 {}
+impl MapKey for i32 {}
+impl MapKey for i64 {}
+impl MapKey for u8 {}
+impl MapKey for u16 {}
+impl MapKey for u32 {}
+impl MapKey for u64 {}
+impl MapKey for str {}
+impl MapKey for [u8] {}
+
 /// A generic map builder.
-pub struct GenericMapBuilder<'w, S, K, V>
-where
-    S: ScratchBuffer,
-    K: MapScalar + ?Sized,
-    V: MapScalar + ?Sized,
-{
+pub struct GenericMapBuilder<'w, S, KP, KR: ?Sized, VP, VR: ?Sized> {
     field_tag: u32,
     writer: &'w mut ScratchWriter<S>,
-    _key_type: PhantomData<K>,
-    _value_type: PhantomData<V>,
+    _key_type: PhantomData<(KP, KR)>,
+    _value_type: PhantomData<(VP, VR)>,
 }
 
-impl<'w, S, K, V> GenericMapBuilder<'w, S, K, V>
+impl<'w, S, KP, KR, VP, VR> GenericMapBuilder<'w, S, KP, KR, VP, VR>
 where
     S: ScratchBuffer,
-    K: MapScalar + ?Sized,
-    V: MapScalar + ?Sized,
+    KP: ProtobufValue<KR>,
+    KR: MapKey + ?Sized,
+    VP: ProtobufValue<VR>,
+    VR: ?Sized,
 {
     /// Creates a new `GenericMapBuilder` with the given field number and scratch writer.
     pub fn new(field_number: u32, writer: &'w mut ScratchWriter<S>) -> Self {
@@ -38,142 +53,30 @@ where
     }
 
     /// Writes an entry to the map.
-    pub fn write_entry<K2, V2>(&mut self, key: K2, value: V2) -> ProtoResult<()>
-    where
-        K2: AsRef<K>,
-        V2: AsRef<V>,
-    {
+    pub fn write_entry(&mut self, key: &KR, value: &VR) -> ProtoResult<()> {
         self.writer.write_tag(self.field_tag)?;
-
-        let kv_len = (key.as_ref().write_size() + value.as_ref().write_size()) as u64;
-        self.writer.write_varint(kv_len)?;
-
-        key.as_ref().write_scalar(1, self.writer)?;
-        value.as_ref().write_scalar(2, self.writer)
+        self.writer.track_message(|sw| {
+            KP::write_field(sw, 1, key)?;
+            VP::write_field(sw, 2, value)
+        })
     }
 }
-
-/// A scalar value suitable as a map key or value.
-pub trait MapScalar {
-    /// Returns the size of the scalar value, in bytes, when serialized as a map
-    /// key or value field (including the tag).
-    fn write_size(&self) -> usize;
-
-    /// Writes the scalar value to the writer with the given field number.
-    ///
-    /// # Errors
-    ///
-    /// If there is an error writing the scalar, an error is returned.
-    fn write_scalar<W: Writer>(&self, field_number: u32, writer: &mut W) -> ProtoResult<()>;
-}
-
-macro_rules! map_scalar_impl {
-    (deref, from => $ty:ty, to => $scaled_ty:ty, $sizeof_fn:ident, $write_fn:ident) => {
-        impl MapScalar for $ty {
-            fn write_size(&self) -> usize {
-                // +1 for the tag (field numbers 1 and 2 always fit in 1 byte)
-                1 + $sizeof_fn(<$scaled_ty>::from(*self))
-            }
-
-            fn write_scalar<W: Writer>(
-                &self,
-                field_number: u32,
-                writer: &mut W,
-            ) -> ProtoResult<()> {
-                writer.write_with_tag(tag(field_number, WireType::Varint), |w| {
-                    w.$write_fn(<$scaled_ty>::from(*self))
-                })
-            }
-        }
-    };
-
-    (deref, from => $ty:ty, $sizeof_fn:ident, $write_fn:ident) => {
-        impl MapScalar for $ty {
-            fn write_size(&self) -> usize {
-                // +1 for the tag (field numbers 1 and 2 always fit in 1 byte)
-                1 + $sizeof_fn(*self)
-            }
-
-            fn write_scalar<W: Writer>(
-                &self,
-                field_number: u32,
-                writer: &mut W,
-            ) -> ProtoResult<()> {
-                writer.write_with_tag(tag(field_number, WireType::Varint), |w| w.$write_fn(*self))
-            }
-        }
-    };
-
-    (from => $ty:ty, $sizeof_fn:ident, $write_fn:ident) => {
-        impl MapScalar for $ty {
-            fn write_size(&self) -> usize {
-                // +1 for the tag (field numbers 1 and 2 always fit in 1 byte)
-                1 + $sizeof_fn(self)
-            }
-
-            fn write_scalar<W: Writer>(
-                &self,
-                field_number: u32,
-                writer: &mut W,
-            ) -> ProtoResult<()> {
-                writer.write_with_tag(tag(field_number, WireType::Varint), |w| w.$write_fn(self))
-            }
-        }
-    };
-
-    (length_delimited, from => $ty:ty, $sizeof_fn:ident, $write_fn:ident) => {
-        impl MapScalar for $ty {
-            fn write_size(&self) -> usize {
-                // +1 for the tag (field numbers 1 and 2 always fit in 1 byte)
-                1 + $sizeof_fn(self)
-            }
-
-            fn write_scalar<W: Writer>(
-                &self,
-                field_number: u32,
-                writer: &mut W,
-            ) -> ProtoResult<()> {
-                writer.write_with_tag(tag(field_number, WireType::LengthDelimited), |w| {
-                    w.$write_fn(self)
-                })
-            }
-        }
-    };
-}
-
-map_scalar_impl!(deref, from => u8, to => u32, sizeof_uint32, write_uint32);
-map_scalar_impl!(deref, from => u16, to => u32, sizeof_uint32, write_uint32);
-map_scalar_impl!(deref, from => u32, to => u32, sizeof_uint32, write_uint32);
-map_scalar_impl!(deref, from => u64, to => u64, sizeof_uint64, write_uint64);
-map_scalar_impl!(deref, from => i8, to => i32, sizeof_sint32, write_sint32);
-map_scalar_impl!(deref, from => i16, to => i32, sizeof_sint32, write_sint32);
-map_scalar_impl!(deref, from => i32, to => i32, sizeof_sint32, write_sint32);
-map_scalar_impl!(deref, from => i64, to => i64, sizeof_sint64, write_sint64);
-map_scalar_impl!(deref, from => f32, sizeof_f32, write_float);
-map_scalar_impl!(deref, from => f64, sizeof_f64, write_double);
-map_scalar_impl!(deref, from => bool, sizeof_bool, write_bool);
-map_scalar_impl!(length_delimited, from => str, sizeof_str, write_string);
-map_scalar_impl!(length_delimited, from => [u8], sizeof_bytes, write_bytes);
 
 /// A map builder for maps with message values.
 ///
 /// Similar to [`GenericMapBuilder`], but for message value types.
-pub struct MessageMapBuilder<'w, S, K, V>
-where
-    S: ScratchBuffer,
-    K: MapScalar + ?Sized,
-    V: MessageBuilder<S>,
-{
+pub struct MessageMapBuilder<'w, S, KP, KR: ?Sized, V> {
     field_tag: u32,
     writer: &'w mut ScratchWriter<S>,
-    _key_type: PhantomData<K>,
+    _key_type: PhantomData<(KP, KR)>,
     _value_type: PhantomData<V>,
 }
 
-impl<'w, S, K, V> MessageMapBuilder<'w, S, K, V>
+impl<'w, S, KP, KR, V> MessageMapBuilder<'w, S, KP, KR, V>
 where
     S: ScratchBuffer,
-    K: MapScalar + ?Sized,
+    KP: ProtobufValue<KR>,
+    KR: MapKey + ?Sized,
     V: MessageBuilder<S>,
 {
     /// Creates a new `MessageMapBuilder` with the given field number and scratch writer.
@@ -190,17 +93,16 @@ where
     ///
     /// The callback receives a mutable reference to the value builder and should
     /// populate the message fields.
-    pub fn write_entry<K2, F>(&mut self, key: K2, f: F) -> ProtoResult<()>
+    pub fn write_entry<F>(&mut self, key: &KR, f: F) -> ProtoResult<()>
     where
-        K2: AsRef<K>,
         F: FnOnce(&mut V::Builder<'_>) -> ProtoResult<()>,
     {
-        let key_ref = key.as_ref();
         self.writer.write_tag(self.field_tag)?;
         self.writer.track_message(move |sw| {
             // Map entries are just like a series of repeated messages, where the message
             // has two fields: the key (field 1), and the value (field 2).
-            key_ref.write_scalar(1, sw)?;
+            KP::write_field(sw, 1, key)?;
+
             sw.write_tag(tag(2, WireType::LengthDelimited))?;
             sw.track_message(move |sw| {
                 let mut builder = V::from_writer(sw);
@@ -211,24 +113,24 @@ where
 }
 
 /// A repeated field builder.
-pub struct RepeatedBuilder<'w, S, T, V: ?Sized> {
+pub struct RepeatedBuilder<'w, S, VP, VR: ?Sized> {
     field_tag: u32,
     packed_field_tag: u32,
     can_pack: bool,
     writer: &'w mut ScratchWriter<S>,
-    _value_type: PhantomData<(T, V)>,
+    _value_type: PhantomData<(VP, VR)>,
 }
 
-impl<'w, S, T, V> RepeatedBuilder<'w, S, T, V>
+impl<'w, S, VP, VR> RepeatedBuilder<'w, S, VP, VR>
 where
     S: ScratchBuffer,
-    T: ProtobufValue<V>,
-    V: ?Sized,
+    VP: ProtobufValue<VR>,
+    VR: ?Sized,
 {
     /// Creates a new `RepeatedBuilder` with the given field number and scratch writer.
     pub fn new(field_number: u32, can_pack: bool, writer: &'w mut ScratchWriter<S>) -> Self {
         Self {
-            field_tag: tag(field_number, T::wire_type()),
+            field_tag: tag(field_number, VP::wire_type()),
             packed_field_tag: tag(field_number, WireType::LengthDelimited),
             can_pack,
             writer,
@@ -237,16 +139,17 @@ where
     }
 
     /// Adds a new value to the repeated field.
-    pub fn add(&mut self, value: &V) -> ProtoResult<()> {
+    pub fn add(&mut self, value: &VR) -> ProtoResult<()> {
         self.writer.write_tag(self.field_tag)?;
-        T::write_value(self.writer, value)
+
+        VP::write_value(self.writer, value)
     }
 
     /// Adds new values from an iterator to the repeated field.
     pub fn add_many<I, IT>(&mut self, values: I) -> ProtoResult<()>
     where
         I: IntoIterator<Item = IT>,
-        IT: std::borrow::Borrow<V>,
+        IT: Borrow<VR>,
     {
         self.add_many_mapped(values, std::convert::identity)
     }
@@ -257,14 +160,14 @@ where
         I: IntoIterator<Item = IT>,
         IT: 'a,
         F: Fn(IT) -> R,
-        R: std::borrow::Borrow<V> + 'a,
+        R: Borrow<VR>,
     {
-        if T::packable() && self.can_pack {
+        if VP::packable() && self.can_pack {
             self.writer.write_tag(self.packed_field_tag)?;
             self.writer.track_message(|writer| {
                 for value in values {
                     let value = map(value);
-                    T::write_value(writer, value.borrow())?;
+                    VP::write_value(writer, value.borrow())?;
                 }
                 Ok(())
             })

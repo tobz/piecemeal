@@ -275,13 +275,13 @@ fn repeated_scalars_roundtrip() {
 
 #[test]
 fn map_roundtrip() {
-    use prost_protos::maps::map_scalar_scalar::MapScalarScalar;
-    use protos::maps::map_scalar_scalar::MapScalarScalarBuilder;
+    use prost_protos::maps::map_scalar_scalar::MapKeyScalar;
+    use protos::maps::map_scalar_scalar::MapKeyScalarBuilder;
 
     let scratch_buf = Vec::with_capacity(1024);
     let mut scratch_writer = ScratchWriter::new(scratch_buf);
 
-    let mut builder = MapScalarScalarBuilder::new(&mut scratch_writer);
+    let mut builder = MapKeyScalarBuilder::new(&mut scratch_writer);
     builder
         .string_to_string()
         .write_entry("key1", "value1")
@@ -294,7 +294,7 @@ fn map_roundtrip() {
     let mut output = Vec::new();
     builder.finish(&mut output).unwrap();
 
-    let decoded = MapScalarScalar::decode(output.as_slice()).unwrap();
+    let decoded = MapKeyScalar::decode(output.as_slice()).unwrap();
 
     assert_eq!(decoded.string_to_string.len(), 2);
     assert_eq!(
@@ -309,13 +309,13 @@ fn map_roundtrip() {
 
 #[test]
 fn map_with_message_value_roundtrip() {
-    use prost_protos::maps::map_scalar_message::MapScalarMessage;
-    use protos::maps::map_scalar_message::MapScalarMessageBuilder;
+    use prost_protos::maps::map_scalar_message::MapKeyMessage;
+    use protos::maps::map_scalar_message::MapKeyMessageBuilder;
 
     let scratch_buf = Vec::with_capacity(1024);
     let mut scratch_writer = ScratchWriter::new(scratch_buf);
 
-    let mut builder = MapScalarMessageBuilder::new(&mut scratch_writer);
+    let mut builder = MapKeyMessageBuilder::new(&mut scratch_writer);
     builder
         .string_to_message()
         .write_entry("key1", |inner| {
@@ -334,7 +334,7 @@ fn map_with_message_value_roundtrip() {
     let mut output = Vec::new();
     builder.finish(&mut output).unwrap();
 
-    let decoded = MapScalarMessage::decode(output.as_slice()).unwrap();
+    let decoded = MapKeyMessage::decode(output.as_slice()).unwrap();
 
     assert_eq!(decoded.string_to_message.len(), 2);
     let entry1 = decoded

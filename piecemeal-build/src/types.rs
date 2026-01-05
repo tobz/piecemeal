@@ -714,16 +714,17 @@ impl Message {
             ));
         }
 
-        let key_typ = key_field_type.write_rust_type(desc);
+        let key_proto_typ = key_field_type.proto_rust_type();
+        let key_rust_typ = key_field_type.write_rust_type(desc);
 
         match value_field_type.category() {
             FieldCategory::Scalar => {
-                // Scalar-to-scalar map: use GenericMapBuilder
-                let value_typ = value_field_type.write_rust_type(desc);
+                let value_proto_typ = value_field_type.proto_rust_type();
+                let value_rust_typ = value_field_type.write_rust_type(desc);
                 writeln!(
                     w,
-                    "    pub fn {}(&mut self) -> GenericMapBuilder<'_, S, {}, {}> {{",
-                    field.name, key_typ, value_typ
+                    "    pub fn {}(&mut self) -> GenericMapBuilder<'_, S, {}, {}, {}, {}> {{",
+                    field.name, key_proto_typ, key_rust_typ, value_proto_typ, value_rust_typ
                 )?;
                 writeln!(
                     w,
@@ -733,12 +734,11 @@ impl Message {
                 writeln!(w, "    }}")?;
             }
             FieldCategory::Message => {
-                // Scalar-to-message map: return MessageMapBuilder with builder type
                 let value_typ = value_field_type.struct_rust_type(desc);
                 writeln!(
                     w,
-                    "    pub fn {}(&mut self) -> MessageMapBuilder<'_, S, {}, {}> {{",
-                    field.name, key_typ, value_typ
+                    "    pub fn {}(&mut self) -> MessageMapBuilder<'_, S, {}, {}, {}> {{",
+                    field.name, key_proto_typ, key_rust_typ, value_typ
                 )?;
                 writeln!(
                     w,
@@ -765,14 +765,12 @@ impl Message {
     ) -> Result<()> {
         let builder_name = oneof.builder_name();
 
-        // Write the builder struct
         writeln!(w)?;
         writeln!(w, "pub struct {}<'w, S: ScratchBuffer> {{", builder_name)?;
         writeln!(w, "    writer: &'w mut ScratchWriter<S>")?;
         writeln!(w, "}}")?;
         writeln!(w)?;
 
-        // Write the impl block
         writeln!(w, "impl<'w, S: ScratchBuffer> {}<'w, S> {{", builder_name)?;
         writeln!(
             w,
@@ -781,7 +779,6 @@ impl Message {
         writeln!(w, "        Self {{ writer }}")?;
         writeln!(w, "    }}")?;
 
-        // Write variant methods
         for field in &oneof.fields {
             writeln!(w)?;
             self.write_oneof_variant_method(w, field, desc)?;
@@ -1565,7 +1562,7 @@ impl FileDescriptor {
 
         writeln!(
             w,
-            "use ::piecemeal::{{helpers::*, types::{{protobuf::*, MessageBuilderBase, MessageBuilder, WireType}}, MapScalar, ScratchBuffer, ScratchWriter, Writer, ProtoResult}};"
+            "use ::piecemeal::{{helpers::*, types::{{protobuf::*, MessageBuilderBase, MessageBuilder, WireType}}, MapKey, ScratchBuffer, ScratchWriter, Writer, ProtoResult}};"
         )?;
         Ok(())
     }
@@ -2330,7 +2327,9 @@ mod tests {
         msg.write_message_builder_field_map(&mut buf, &field, &desc)
             .unwrap();
         let output = String::from_utf8(buf).unwrap();
-        assert!(output.contains("pub fn data(&mut self) -> GenericMapBuilder<'_, S, str, i32>"));
+        assert!(output.contains(
+            "pub fn data(&mut self) -> GenericMapBuilder<'_, S, Bytes, str, Varint, i32>"
+        ));
         assert!(output.contains("GenericMapBuilder::new(1, self.writer)"));
     }
 
@@ -2361,10 +2360,9 @@ mod tests {
             .unwrap();
         let output = String::from_utf8(buf).unwrap();
         // Module prefix is included: test::Value
-        assert!(
-            output
-                .contains("pub fn values(&mut self) -> MessageMapBuilder<'_, S, str, test::Value>")
-        );
+        assert!(output.contains(
+            "pub fn values(&mut self) -> MessageMapBuilder<'_, S, Bytes, str, test::Value>"
+        ));
         assert!(output.contains("MessageMapBuilder::new(1, self.writer)"));
     }
 

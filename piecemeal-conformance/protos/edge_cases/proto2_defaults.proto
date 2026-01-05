@@ -1,0 +1,17 @@
+syntax = "proto2";
+
+package edge_cases.proto2_defaults;
+
+// Test proto2 default value parsing
+message WithDefaults {
+  optional string name = 1 [default = "unknown"];
+  optional int32 count = 2 [default = 42];
+  optional bool enabled = 3 [default = true];
+  optional double rate = 4 [default = 1.5];
+}
+
+// Test without defaults
+message WithoutDefaults {
+  optional string label = 1;
+  optional int64 value = 2;
+}

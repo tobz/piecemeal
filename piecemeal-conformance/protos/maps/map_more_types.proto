@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package maps.map_more_types;
+
+// Test various map key and value type combinations to exercise MapKey implementations
+message MapMoreTypes {
+  // Integer key types
+  map<int32, string> int32_to_string = 1;
+  map<int64, string> int64_to_string = 2;
+  map<uint32, string> uint32_to_string = 3;
+  map<uint64, string> uint64_to_string = 4;
+  map<sint32, string> sint32_to_string = 5;
+  map<sint64, string> sint64_to_string = 6;
+
+  // Fixed-width key types
+  map<fixed32, string> fixed32_to_string = 7;
+  map<fixed64, string> fixed64_to_string = 8;
+  map<sfixed32, string> sfixed32_to_string = 9;
+  map<sfixed64, string> sfixed64_to_string = 10;
+
+  // Bool key type
+  map<bool, string> bool_to_string = 11;
+
+  // Various value types with string keys
+  map<string, int32> string_to_int32 = 12;
+  map<string, int64> string_to_int64 = 13;
+  map<string, double> string_to_double = 14;
+  map<string, float> string_to_float = 15;
+  map<string, bool> string_to_bool = 16;
+  map<string, bytes> string_to_bytes = 17;
+}

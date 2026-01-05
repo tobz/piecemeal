@@ -4,6 +4,6 @@ package maps.map_scalar_scalar;
 
 // Note: Map support in piecemeal has limitations with the write_entry API
 // for non-string value types. This test focuses on string keys/values.
-message MapScalarScalar {
+message MapKeyScalar {
     map<string, string> string_to_string = 1;
 }

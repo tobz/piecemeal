@@ -1,6 +1,6 @@
 //! Common types and traits.
 
-use crate::{ProtoResult, ScratchWriter, Writer};
+use crate::{ProtoResult, ScratchWriter, Writer, helpers::tag};
 
 /// Automatically generated implementations of core traits for Protocol Buffers types.
 pub mod protobuf {
@@ -81,6 +81,12 @@ pub mod protobuf {
     generate_protobuf_primitive_types!(
         proto_ty => Varint,
         wire_type => Varint,
+        rust_types => [bool],
+        write => { func => write_bool, deref, as_type => bool },
+    );
+    generate_protobuf_primitive_types!(
+        proto_ty => Varint,
+        wire_type => Varint,
         rust_types => [i8, i16, i32, i64, isize, u8, u16, u32, u64, usize],
         write => { func => write_varint, deref, as_type => u64 },
     );
@@ -137,6 +143,12 @@ pub mod protobuf {
         wire_type => LengthDelimited,
         rust_types => [str],
         write => { func => write_string },
+    );
+    generate_protobuf_ref_types!(
+        proto_ty => Bytes,
+        wire_type => LengthDelimited,
+        rust_types => [[u8]],
+        write => { func => write_bytes },
     );
 }
 
@@ -197,6 +209,14 @@ pub trait ProtobufValue<T: ?Sized> {
     ///
     /// If the value cannot be written to the writer, an error is returned.
     fn write_value<W: Writer>(writer: &mut W, value: &T) -> ProtoResult<()>;
+
+    /// Writes the value as a complete field to the given writer.
+    ///
+    /// # Errors
+    fn write_field<W: Writer>(writer: &mut W, field_number: u32, value: &T) -> ProtoResult<()> {
+        writer.write_tag(tag(field_number, Self::wire_type()))?;
+        Self::write_value(writer, value)
+    }
 }
 
 /// Message builder base trait.

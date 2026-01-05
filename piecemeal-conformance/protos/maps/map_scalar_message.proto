@@ -7,6 +7,6 @@ message InnerMessage {
     int32 value = 2;
 }
 
-message MapScalarMessage {
+message MapKeyMessage {
     map<string, InnerMessage> string_to_message = 1;
 }

@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package edge_cases.field_options;
+
+// Test explicit field options parsing
+message FieldOptions {
+  // Explicit packed option (proto3 defaults to packed, but we test explicit)
+  repeated int32 packed_values = 1 [packed = true];
+
+  // Deprecated field option
+  string old_field = 2 [deprecated = true];
+
+  // Regular field for comparison
+  string current_field = 3;
+
+  // Another packed repeated field
+  repeated fixed64 packed_ids = 4 [packed = true];
+}

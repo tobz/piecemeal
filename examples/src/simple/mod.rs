@@ -22,6 +22,9 @@ fn main() {
                 })?
                 .aggregation_type(AggregationType::CUMULATIVE)?;
 
+            let mut labels = series_builder.labels();
+            labels.write_entry("label1", "value1")?;
+
             Ok(())
         })
         .expect("should not fail to build series");
