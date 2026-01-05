@@ -430,3 +430,340 @@ fn reserved_keywords_roundtrip() {
     assert_eq!(decoded.r#use, 300);
     assert_eq!(decoded.crate_, "crate value"); // self and crate can't use r# syntax
 }
+
+#[test]
+fn repeated_scalars_complete_roundtrip() {
+    // Tests all repeated field types including int64 and uint32 which were missing from the original test.
+    use prost_protos::repeated::repeated_scalars::RepeatedScalars;
+    use protos::repeated::repeated_scalars::RepeatedScalarsBuilder;
+
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
+
+    let mut builder = RepeatedScalarsBuilder::new(&mut scratch_writer);
+    builder
+        .int32_values(|rb| rb.add_many([1, 2, 3]))
+        .unwrap()
+        .int64_values(|rb| rb.add_many([100i64, 200, 300]))
+        .unwrap()
+        .string_values(|rb| rb.add_many(["a", "b", "c"]))
+        .unwrap()
+        .double_values(|rb| rb.add_many([1.5, 2.5, 3.5]))
+        .unwrap()
+        .uint32_values(|rb| rb.add_many([10u32, 20, 30]))
+        .unwrap();
+
+    let mut output = Vec::new();
+    builder.finish(&mut output).unwrap();
+
+    let decoded = RepeatedScalars::decode(output.as_slice()).unwrap();
+
+    assert_eq!(decoded.int32_values, vec![1, 2, 3]);
+    assert_eq!(decoded.int64_values, vec![100, 200, 300]);
+    assert_eq!(decoded.string_values, vec!["a", "b", "c"]);
+    assert_eq!(decoded.double_values, vec![1.5, 2.5, 3.5]);
+    assert_eq!(decoded.uint32_values, vec![10, 20, 30]);
+}
+
+#[test]
+fn repeated_scalars_transparent_conversion_roundtrip() {
+    // Tests transparent conversion in repeated fields (e.g., i8 -> int32, u8 -> uint32).
+    use prost_protos::repeated::repeated_scalars::RepeatedScalars;
+    use protos::repeated::repeated_scalars::RepeatedScalarsBuilder;
+
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
+
+    let mut builder = RepeatedScalarsBuilder::new(&mut scratch_writer);
+    builder
+        // i8 values transparently converted to int32
+        .int32_values(|rb| rb.add_many([1i8, 2i8, 3i8]))
+        .unwrap()
+        // i16 values transparently converted to int64
+        .int64_values(|rb| rb.add_many([100i16, 200i16, 300i16]))
+        .unwrap()
+        .string_values(|rb| rb.add_many(["x", "y", "z"]))
+        .unwrap()
+        // f32 values transparently converted to double (f64)
+        .double_values(|rb| rb.add_many([1.5f32, 2.5f32, 3.5f32]))
+        .unwrap()
+        // u8 values transparently converted to uint32
+        .uint32_values(|rb| rb.add_many([10u8, 20u8, 30u8]))
+        .unwrap();
+
+    let mut output = Vec::new();
+    builder.finish(&mut output).unwrap();
+
+    let decoded = RepeatedScalars::decode(output.as_slice()).unwrap();
+
+    assert_eq!(decoded.int32_values, vec![1, 2, 3]);
+    assert_eq!(decoded.int64_values, vec![100, 200, 300]);
+    assert_eq!(decoded.string_values, vec!["x", "y", "z"]);
+    assert_eq!(decoded.double_values, vec![1.5, 2.5, 3.5]);
+    assert_eq!(decoded.uint32_values, vec![10, 20, 30]);
+}
+
+#[test]
+fn map_more_types_roundtrip() {
+    // Tests various map key and value type combinations defined in map_more_types.proto.
+    use prost_protos::maps::map_more_types::MapMoreTypes;
+    use protos::maps::map_more_types::MapMoreTypesBuilder;
+
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
+
+    let mut builder = MapMoreTypesBuilder::new(&mut scratch_writer);
+
+    // Integer key types
+    builder
+        .int32_to_string()
+        .write_entry(42i32, "int32_value")
+        .unwrap();
+    builder
+        .int64_to_string()
+        .write_entry(100i64, "int64_value")
+        .unwrap();
+    builder
+        .uint32_to_string()
+        .write_entry(200u32, "uint32_value")
+        .unwrap();
+    builder
+        .uint64_to_string()
+        .write_entry(300u64, "uint64_value")
+        .unwrap();
+    builder
+        .sint32_to_string()
+        .write_entry(-50i32, "sint32_value")
+        .unwrap();
+    builder
+        .sint64_to_string()
+        .write_entry(-100i64, "sint64_value")
+        .unwrap();
+
+    // Fixed-width key types
+    builder
+        .fixed32_to_string()
+        .write_entry(1000u32, "fixed32_value")
+        .unwrap();
+    builder
+        .fixed64_to_string()
+        .write_entry(2000u64, "fixed64_value")
+        .unwrap();
+    builder
+        .sfixed32_to_string()
+        .write_entry(-500i32, "sfixed32_value")
+        .unwrap();
+    builder
+        .sfixed64_to_string()
+        .write_entry(-1000i64, "sfixed64_value")
+        .unwrap();
+
+    // Bool key type
+    builder
+        .bool_to_string()
+        .write_entry(true, "true_value")
+        .unwrap();
+    builder
+        .bool_to_string()
+        .write_entry(false, "false_value")
+        .unwrap();
+
+    // Various value types with string keys
+    builder
+        .string_to_int32()
+        .write_entry("key_int32", 42i32)
+        .unwrap();
+    builder
+        .string_to_int64()
+        .write_entry("key_int64", 100i64)
+        .unwrap();
+    builder
+        .string_to_double()
+        .write_entry("key_double", 12.3456)
+        .unwrap();
+    builder
+        .string_to_float()
+        .write_entry("key_float", 2.5f32)
+        .unwrap();
+    builder
+        .string_to_bool()
+        .write_entry("key_bool", true)
+        .unwrap();
+    builder
+        .string_to_bytes()
+        .write_entry("key_bytes", &[1u8, 2, 3][..])
+        .unwrap();
+
+    let mut output = Vec::new();
+    builder.finish(&mut output).unwrap();
+
+    let decoded = MapMoreTypes::decode(output.as_slice()).unwrap();
+
+    // Verify integer key types
+    assert_eq!(
+        decoded.int32_to_string.get(&42),
+        Some(&"int32_value".to_string())
+    );
+    assert_eq!(
+        decoded.int64_to_string.get(&100),
+        Some(&"int64_value".to_string())
+    );
+    assert_eq!(
+        decoded.uint32_to_string.get(&200),
+        Some(&"uint32_value".to_string())
+    );
+    assert_eq!(
+        decoded.uint64_to_string.get(&300),
+        Some(&"uint64_value".to_string())
+    );
+    assert_eq!(
+        decoded.sint32_to_string.get(&-50),
+        Some(&"sint32_value".to_string())
+    );
+    assert_eq!(
+        decoded.sint64_to_string.get(&-100),
+        Some(&"sint64_value".to_string())
+    );
+
+    // Verify fixed-width key types
+    assert_eq!(
+        decoded.fixed32_to_string.get(&1000),
+        Some(&"fixed32_value".to_string())
+    );
+    assert_eq!(
+        decoded.fixed64_to_string.get(&2000),
+        Some(&"fixed64_value".to_string())
+    );
+    assert_eq!(
+        decoded.sfixed32_to_string.get(&-500),
+        Some(&"sfixed32_value".to_string())
+    );
+    assert_eq!(
+        decoded.sfixed64_to_string.get(&-1000),
+        Some(&"sfixed64_value".to_string())
+    );
+
+    // Verify bool key type
+    assert_eq!(
+        decoded.bool_to_string.get(&true),
+        Some(&"true_value".to_string())
+    );
+    assert_eq!(
+        decoded.bool_to_string.get(&false),
+        Some(&"false_value".to_string())
+    );
+
+    // Verify various value types
+    assert_eq!(decoded.string_to_int32.get("key_int32"), Some(&42));
+    assert_eq!(decoded.string_to_int64.get("key_int64"), Some(&100));
+    assert!((decoded.string_to_double.get("key_double").unwrap() - 12.3456).abs() < 0.0001);
+    assert!((decoded.string_to_float.get("key_float").unwrap() - 2.5).abs() < 0.001);
+    assert_eq!(decoded.string_to_bool.get("key_bool"), Some(&true));
+    assert_eq!(
+        decoded.string_to_bytes.get("key_bytes"),
+        Some(&vec![1u8, 2, 3])
+    );
+}
+
+#[test]
+fn map_transparent_conversion_roundtrip() {
+    // Tests transparent conversion in map keys and values (e.g., i8 key -> int32 map).
+    use prost_protos::maps::map_more_types::MapMoreTypes;
+    use protos::maps::map_more_types::MapMoreTypesBuilder;
+
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
+
+    let mut builder = MapMoreTypesBuilder::new(&mut scratch_writer);
+
+    // i8 key transparently converted to int32
+    builder
+        .int32_to_string()
+        .write_entry(42i8, "from_i8")
+        .unwrap();
+    // i16 key transparently converted to int32
+    builder
+        .int32_to_string()
+        .write_entry(100i16, "from_i16")
+        .unwrap();
+
+    // i16 key transparently converted to int64
+    builder
+        .int64_to_string()
+        .write_entry(200i16, "from_i16_to_i64")
+        .unwrap();
+    // i32 key transparently converted to int64
+    builder
+        .int64_to_string()
+        .write_entry(300i32, "from_i32_to_i64")
+        .unwrap();
+
+    // u8 key transparently converted to uint32
+    builder
+        .uint32_to_string()
+        .write_entry(50u8, "from_u8")
+        .unwrap();
+    // u16 key transparently converted to uint64
+    builder
+        .uint64_to_string()
+        .write_entry(60u16, "from_u16_to_u64")
+        .unwrap();
+
+    // i8 value transparently converted to int32
+    builder
+        .string_to_int32()
+        .write_entry("small", 42i8)
+        .unwrap();
+    // i16 value transparently converted to int64
+    builder
+        .string_to_int64()
+        .write_entry("medium", 100i16)
+        .unwrap();
+    // f32 value transparently converted to double (f64)
+    builder
+        .string_to_double()
+        .write_entry("float_to_double", 1.5f32)
+        .unwrap();
+    // u8 value transparently converted to float
+    builder
+        .string_to_float()
+        .write_entry("u8_to_float", 100u8)
+        .unwrap();
+
+    let mut output = Vec::new();
+    builder.finish(&mut output).unwrap();
+
+    let decoded = MapMoreTypes::decode(output.as_slice()).unwrap();
+
+    // Verify transparent key conversions
+    assert_eq!(
+        decoded.int32_to_string.get(&42),
+        Some(&"from_i8".to_string())
+    );
+    assert_eq!(
+        decoded.int32_to_string.get(&100),
+        Some(&"from_i16".to_string())
+    );
+    assert_eq!(
+        decoded.int64_to_string.get(&200),
+        Some(&"from_i16_to_i64".to_string())
+    );
+    assert_eq!(
+        decoded.int64_to_string.get(&300),
+        Some(&"from_i32_to_i64".to_string())
+    );
+    assert_eq!(
+        decoded.uint32_to_string.get(&50),
+        Some(&"from_u8".to_string())
+    );
+    assert_eq!(
+        decoded.uint64_to_string.get(&60),
+        Some(&"from_u16_to_u64".to_string())
+    );
+
+    // Verify transparent value conversions
+    assert_eq!(decoded.string_to_int32.get("small"), Some(&42));
+    assert_eq!(decoded.string_to_int64.get("medium"), Some(&100));
+    assert!((decoded.string_to_double.get("float_to_double").unwrap() - 1.5).abs() < 0.001);
+    assert!((decoded.string_to_float.get("u8_to_float").unwrap() - 100.0).abs() < 0.001);
+}

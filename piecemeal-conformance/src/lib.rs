@@ -79,6 +79,12 @@ pub mod prost_protos {
                 "/protos/prost/maps.map_scalar_message.rs"
             ));
         }
+        pub mod map_more_types {
+            include!(concat!(
+                env!("OUT_DIR"),
+                "/protos/prost/maps.map_more_types.rs"
+            ));
+        }
     }
     pub mod imports {
         pub mod base_types {
