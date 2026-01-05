@@ -1,46 +1,26 @@
 //! General builder types for working with certain field types.
 
-use std::{borrow::Borrow, marker::PhantomData};
+use std::marker::PhantomData;
 
 use crate::{
     ProtoResult, ScratchBuffer, ScratchWriter, Writer,
     helpers::*,
-    types::{MessageBuilder, ProtobufValue, WireType},
+    types::{MapKey, MessageBuilder, ProtobufType, ProtobufValue, WireType},
 };
 
-/// A marker trait for types that can be used as map keys.
-///
-/// In Protocol Buffers, map keys can be any scalar type besides floating-point types and bytes.
-pub trait MapKey {}
-
-// TODO: sealed impl for `MapKey`
-impl MapKey for bool {}
-impl MapKey for i8 {}
-impl MapKey for i16 {}
-impl MapKey for i32 {}
-impl MapKey for i64 {}
-impl MapKey for u8 {}
-impl MapKey for u16 {}
-impl MapKey for u32 {}
-impl MapKey for u64 {}
-impl MapKey for str {}
-impl MapKey for [u8] {}
-
 /// A generic map builder.
-pub struct GenericMapBuilder<'w, S, KP, KR: ?Sized, VP, VR: ?Sized> {
+pub struct GenericMapBuilder<'w, S, K, V> {
     field_tag: u32,
     writer: &'w mut ScratchWriter<S>,
-    _key_type: PhantomData<(KP, KR)>,
-    _value_type: PhantomData<(VP, VR)>,
+    _key_type: PhantomData<K>,
+    _value_type: PhantomData<V>,
 }
 
-impl<'w, S, KP, KR, VP, VR> GenericMapBuilder<'w, S, KP, KR, VP, VR>
+impl<'w, S, K, V> GenericMapBuilder<'w, S, K, V>
 where
     S: ScratchBuffer,
-    KP: ProtobufValue<KR>,
-    KR: MapKey + ?Sized,
-    VP: ProtobufValue<VR>,
-    VR: ?Sized,
+    K: ProtobufType,
+    V: ProtobufType,
 {
     /// Creates a new `GenericMapBuilder` with the given field number and scratch writer.
     pub fn new(field_number: u32, writer: &'w mut ScratchWriter<S>) -> Self {
@@ -53,11 +33,16 @@ where
     }
 
     /// Writes an entry to the map.
-    pub fn write_entry(&mut self, key: &KR, value: &VR) -> ProtoResult<()> {
+    pub fn write_entry<K2, V2>(&mut self, key: K2, value: V2) -> ProtoResult<()>
+    where
+        K: ProtobufValue<K2>,
+        K2: MapKey,
+        V: ProtobufValue<V2>,
+    {
         self.writer.write_tag(self.field_tag)?;
         self.writer.track_message(|sw| {
-            KP::write_field(sw, 1, key)?;
-            VP::write_field(sw, 2, value)
+            K::write_field(sw, 1, &key)?;
+            V::write_field(sw, 2, &value)
         })
     }
 }
@@ -65,18 +50,17 @@ where
 /// A map builder for maps with message values.
 ///
 /// Similar to [`GenericMapBuilder`], but for message value types.
-pub struct MessageMapBuilder<'w, S, KP, KR: ?Sized, V> {
+pub struct MessageMapBuilder<'w, S, K, V> {
     field_tag: u32,
     writer: &'w mut ScratchWriter<S>,
-    _key_type: PhantomData<(KP, KR)>,
+    _key_type: PhantomData<K>,
     _value_type: PhantomData<V>,
 }
 
-impl<'w, S, KP, KR, V> MessageMapBuilder<'w, S, KP, KR, V>
+impl<'w, S, K, V> MessageMapBuilder<'w, S, K, V>
 where
     S: ScratchBuffer,
-    KP: ProtobufValue<KR>,
-    KR: MapKey + ?Sized,
+    K: ProtobufType,
     V: MessageBuilder<S>,
 {
     /// Creates a new `MessageMapBuilder` with the given field number and scratch writer.
@@ -93,15 +77,17 @@ where
     ///
     /// The callback receives a mutable reference to the value builder and should
     /// populate the message fields.
-    pub fn write_entry<F>(&mut self, key: &KR, f: F) -> ProtoResult<()>
+    pub fn write_entry<K2, F>(&mut self, key: K2, f: F) -> ProtoResult<()>
     where
+        K: ProtobufValue<K2>,
+        K2: MapKey,
         F: FnOnce(&mut V::Builder<'_>) -> ProtoResult<()>,
     {
         self.writer.write_tag(self.field_tag)?;
         self.writer.track_message(move |sw| {
             // Map entries are just like a series of repeated messages, where the message
             // has two fields: the key (field 1), and the value (field 2).
-            KP::write_field(sw, 1, key)?;
+            K::write_field(sw, 1, &key)?;
 
             sw.write_tag(tag(2, WireType::LengthDelimited))?;
             sw.track_message(move |sw| {
@@ -113,24 +99,23 @@ where
 }
 
 /// A repeated field builder.
-pub struct RepeatedBuilder<'w, S, VP, VR: ?Sized> {
+pub struct RepeatedBuilder<'w, S, T> {
     field_tag: u32,
     packed_field_tag: u32,
     can_pack: bool,
     writer: &'w mut ScratchWriter<S>,
-    _value_type: PhantomData<(VP, VR)>,
+    _value_type: PhantomData<T>,
 }
 
-impl<'w, S, VP, VR> RepeatedBuilder<'w, S, VP, VR>
+impl<'w, S, T> RepeatedBuilder<'w, S, T>
 where
     S: ScratchBuffer,
-    VP: ProtobufValue<VR>,
-    VR: ?Sized,
+    T: ProtobufType,
 {
     /// Creates a new `RepeatedBuilder` with the given field number and scratch writer.
     pub fn new(field_number: u32, can_pack: bool, writer: &'w mut ScratchWriter<S>) -> Self {
         Self {
-            field_tag: tag(field_number, VP::wire_type()),
+            field_tag: tag(field_number, T::wire_type()),
             packed_field_tag: tag(field_number, WireType::LengthDelimited),
             can_pack,
             writer,
@@ -139,17 +124,20 @@ where
     }
 
     /// Adds a new value to the repeated field.
-    pub fn add(&mut self, value: &VR) -> ProtoResult<()> {
+    pub fn add<V>(&mut self, value: V) -> ProtoResult<()>
+    where
+        T: ProtobufValue<V>,
+    {
         self.writer.write_tag(self.field_tag)?;
 
-        VP::write_value(self.writer, value)
+        T::write_value(self.writer, &value)
     }
 
     /// Adds new values from an iterator to the repeated field.
     pub fn add_many<I, IT>(&mut self, values: I) -> ProtoResult<()>
     where
         I: IntoIterator<Item = IT>,
-        IT: Borrow<VR>,
+        T: ProtobufValue<IT>,
     {
         self.add_many_mapped(values, std::convert::identity)
     }
@@ -160,21 +148,21 @@ where
         I: IntoIterator<Item = IT>,
         IT: 'a,
         F: Fn(IT) -> R,
-        R: Borrow<VR>,
+        T: ProtobufValue<R>,
     {
-        if VP::packable() && self.can_pack {
+        if T::packable() && self.can_pack {
             self.writer.write_tag(self.packed_field_tag)?;
             self.writer.track_message(|writer| {
                 for value in values {
                     let value = map(value);
-                    VP::write_value(writer, value.borrow())?;
+                    T::write_value(writer, &value)?;
                 }
                 Ok(())
             })
         } else {
             for value in values {
                 let value = map(value);
-                self.add(value.borrow())?;
+                self.add(value)?;
             }
             Ok(())
         }

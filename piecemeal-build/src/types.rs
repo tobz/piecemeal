@@ -253,21 +253,22 @@ impl FieldType {
     ///
     /// This is distinct from `proto_type`, as it refers to the condensed helper types (e.g., `Varint`, `Sfixed32`) that
     /// we use to encode writing logic into the type system, and not the Protocol Buffers types themselves.
-    const fn proto_rust_type(&self) -> &'static str {
+    fn proto_rust_type(&self, desc: &FileDescriptor) -> String {
+        let rust_typ = self.write_rust_type(desc);
         match *self {
             FieldType::Bool
             | FieldType::Int32
             | FieldType::Int64
             | FieldType::Uint32
             | FieldType::Uint64
-            | FieldType::Enum(_) => "Varint",
-            FieldType::Sint32 => "Sint32",
-            FieldType::Sint64 => "Sint64",
-            FieldType::Fixed32 => "Fixed32",
-            FieldType::Fixed64 => "Fixed64",
-            FieldType::Sfixed32 | FieldType::Float => "Sfixed32",
-            FieldType::Sfixed64 | FieldType::Double => "Sfixed64",
-            FieldType::String | FieldType::Bytes => "Bytes",
+            | FieldType::Enum(_) => format!("Varint<{}>", rust_typ),
+            FieldType::Sint32 => format!("Sint32<{}>", rust_typ),
+            FieldType::Sint64 => format!("Sint64<{}>", rust_typ),
+            FieldType::Fixed32 => format!("Fixed32<{}>", rust_typ),
+            FieldType::Fixed64 => format!("Fixed64<{}>", rust_typ),
+            FieldType::Sfixed32 | FieldType::Float => format!("Sfixed32<{}>", rust_typ),
+            FieldType::Sfixed64 | FieldType::Double => format!("Sfixed64<{}>", rust_typ),
+            FieldType::String | FieldType::Bytes => "Bytes".to_string(),
             FieldType::MessageOrEnum(_) => panic!("message / enum not resolved"),
             _ => panic!("not a scalar type"),
         }
@@ -609,7 +610,7 @@ impl Message {
         desc: &FileDescriptor,
     ) -> Result<()> {
         let is_repeated = field.frequency.is_repeated();
-        let proto_typ = field.typ.proto_rust_type();
+        let proto_typ = field.typ.proto_rust_type(desc);
         let value_typ = field.typ.write_rust_type(desc);
 
         if is_repeated {
@@ -621,8 +622,8 @@ impl Message {
             writeln!(w, "    where")?;
             writeln!(
                 w,
-                "        F: for<'a> FnOnce(&mut RepeatedBuilder<'a, S, {}, {}>) -> ProtoResult<()>,",
-                proto_typ, value_typ
+                "        F: for<'a> FnOnce(&mut RepeatedBuilder<'a, S, {}>) -> ProtoResult<()>,",
+                proto_typ,
             )?;
             writeln!(w, "    {{")?;
             writeln!(
@@ -714,17 +715,15 @@ impl Message {
             ));
         }
 
-        let key_proto_typ = key_field_type.proto_rust_type();
-        let key_rust_typ = key_field_type.write_rust_type(desc);
+        let key_proto_typ = key_field_type.proto_rust_type(desc);
 
         match value_field_type.category() {
             FieldCategory::Scalar => {
-                let value_proto_typ = value_field_type.proto_rust_type();
-                let value_rust_typ = value_field_type.write_rust_type(desc);
+                let value_proto_typ = value_field_type.proto_rust_type(desc);
                 writeln!(
                     w,
-                    "    pub fn {}(&mut self) -> GenericMapBuilder<'_, S, {}, {}, {}, {}> {{",
-                    field.name, key_proto_typ, key_rust_typ, value_proto_typ, value_rust_typ
+                    "    pub fn {}(&mut self) -> GenericMapBuilder<'_, S, {}, {}> {{",
+                    field.name, key_proto_typ, value_proto_typ
                 )?;
                 writeln!(
                     w,
@@ -737,8 +736,8 @@ impl Message {
                 let value_typ = value_field_type.struct_rust_type(desc);
                 writeln!(
                     w,
-                    "    pub fn {}(&mut self) -> MessageMapBuilder<'_, S, {}, {}, {}> {{",
-                    field.name, key_proto_typ, key_rust_typ, value_typ
+                    "    pub fn {}(&mut self) -> MessageMapBuilder<'_, S, {}, {}> {{",
+                    field.name, key_proto_typ, value_typ
                 )?;
                 writeln!(
                     w,
@@ -1562,7 +1561,7 @@ impl FileDescriptor {
 
         writeln!(
             w,
-            "use ::piecemeal::{{helpers::*, types::{{protobuf::*, MessageBuilderBase, MessageBuilder, WireType}}, MapKey, ScratchBuffer, ScratchWriter, Writer, ProtoResult}};"
+            "use ::piecemeal::{{helpers::*, types::{{protobuf::*, MapKey, MessageBuilderBase, MessageBuilder, WireType}}, ScratchBuffer, ScratchWriter, Writer, ProtoResult}};"
         )?;
         Ok(())
     }
@@ -1973,21 +1972,23 @@ mod tests {
 
     #[test]
     fn test_field_type_proto_rust_type() {
-        assert_eq!(FieldType::Int32.proto_rust_type(), "Varint");
-        assert_eq!(FieldType::Int64.proto_rust_type(), "Varint");
-        assert_eq!(FieldType::Uint32.proto_rust_type(), "Varint");
-        assert_eq!(FieldType::Uint64.proto_rust_type(), "Varint");
-        assert_eq!(FieldType::Bool.proto_rust_type(), "Varint");
-        assert_eq!(FieldType::Sint32.proto_rust_type(), "Sint32");
-        assert_eq!(FieldType::Sint64.proto_rust_type(), "Sint64");
-        assert_eq!(FieldType::Fixed32.proto_rust_type(), "Fixed32");
-        assert_eq!(FieldType::Fixed64.proto_rust_type(), "Fixed64");
-        assert_eq!(FieldType::Sfixed32.proto_rust_type(), "Sfixed32");
-        assert_eq!(FieldType::Sfixed64.proto_rust_type(), "Sfixed64");
-        assert_eq!(FieldType::Float.proto_rust_type(), "Sfixed32");
-        assert_eq!(FieldType::Double.proto_rust_type(), "Sfixed64");
-        assert_eq!(FieldType::String.proto_rust_type(), "Bytes");
-        assert_eq!(FieldType::Bytes.proto_rust_type(), "Bytes");
+        let desc = FileDescriptor::default();
+
+        assert_eq!(FieldType::Int32.proto_rust_type(&desc), "Varint<i32>");
+        assert_eq!(FieldType::Int64.proto_rust_type(&desc), "Varint<i64>");
+        assert_eq!(FieldType::Uint32.proto_rust_type(&desc), "Varint<u32>");
+        assert_eq!(FieldType::Uint64.proto_rust_type(&desc), "Varint<u64>");
+        assert_eq!(FieldType::Bool.proto_rust_type(&desc), "Varint<bool>");
+        assert_eq!(FieldType::Sint32.proto_rust_type(&desc), "Sint32<i32>");
+        assert_eq!(FieldType::Sint64.proto_rust_type(&desc), "Sint64<i64>");
+        assert_eq!(FieldType::Fixed32.proto_rust_type(&desc), "Fixed32<u32>");
+        assert_eq!(FieldType::Fixed64.proto_rust_type(&desc), "Fixed64<u64>");
+        assert_eq!(FieldType::Sfixed32.proto_rust_type(&desc), "Sfixed32<i32>");
+        assert_eq!(FieldType::Sfixed64.proto_rust_type(&desc), "Sfixed64<i64>");
+        assert_eq!(FieldType::Float.proto_rust_type(&desc), "Sfixed32<f32>");
+        assert_eq!(FieldType::Double.proto_rust_type(&desc), "Sfixed64<f64>");
+        assert_eq!(FieldType::String.proto_rust_type(&desc), "Bytes");
+        assert_eq!(FieldType::Bytes.proto_rust_type(&desc), "Bytes");
     }
 
     // ============ TEST HELPERS ============
@@ -2258,7 +2259,7 @@ mod tests {
             .unwrap();
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("pub fn values<F>(&mut self, f: F)"));
-        assert!(output.contains("RepeatedBuilder<'a, S, Varint, i32>"));
+        assert!(output.contains("RepeatedBuilder<'a, S, Varint<i32>>"));
         assert!(output.contains("RepeatedBuilder::new(1,"));
     }
 
@@ -2327,9 +2328,10 @@ mod tests {
         msg.write_message_builder_field_map(&mut buf, &field, &desc)
             .unwrap();
         let output = String::from_utf8(buf).unwrap();
-        assert!(output.contains(
-            "pub fn data(&mut self) -> GenericMapBuilder<'_, S, Bytes, str, Varint, i32>"
-        ));
+        assert!(
+            output
+                .contains("pub fn data(&mut self) -> GenericMapBuilder<'_, S, Bytes, Varint<i32>>")
+        );
         assert!(output.contains("GenericMapBuilder::new(1, self.writer)"));
     }
 
@@ -2360,9 +2362,11 @@ mod tests {
             .unwrap();
         let output = String::from_utf8(buf).unwrap();
         // Module prefix is included: test::Value
-        assert!(output.contains(
-            "pub fn values(&mut self) -> MessageMapBuilder<'_, S, Bytes, str, test::Value>"
-        ));
+        assert!(
+            output.contains(
+                "pub fn values(&mut self) -> MessageMapBuilder<'_, S, Bytes, test::Value>"
+            )
+        );
         assert!(output.contains("MessageMapBuilder::new(1, self.writer)"));
     }
 

@@ -24,6 +24,7 @@ fn main() {
 
             let mut labels = series_builder.labels();
             labels.write_entry("label1", "value1")?;
+            labels.write_entry("label2", "value2")?;
 
             Ok(())
         })

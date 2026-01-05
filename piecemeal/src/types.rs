@@ -1,155 +1,237 @@
 //! Common types and traits.
 
-use crate::{ProtoResult, ScratchWriter, Writer, helpers::tag};
+use super::{ProtoResult, ScratchWriter, Writer, helpers::tag};
 
 /// Automatically generated implementations of core traits for Protocol Buffers types.
 pub mod protobuf {
+    use std::marker::PhantomData;
+
+    use super::{ProtobufType, WireType};
+
     macro_rules! generate_protobuf_primitive_types {
-		(proto_ty => $ty_name:ident, wire_type => $wire_type:ident, rust_types => [$($rust_ty:ty),+], write => { func => $write_fn:ident, deref, as_type => $as_ty:ty } $(,)?) => {
-			$(
-				impl $crate::types::ProtobufValue<$rust_ty> for $ty_name {
-					fn wire_type() -> $crate::types::WireType {
-						$crate::types::WireType::$wire_type
-					}
-
-					fn packable() -> bool {
-						true
-					}
-
-					fn write_value<W: $crate::Writer>(writer: &mut W, value: &$rust_ty) -> $crate::ProtoResult<()> {
-						writer.$write_fn(*value as $as_ty)
-					}
-				}
-			)+
-		};
-	}
+        ($proto_ty:ident < $field_ty:ty >, $from_ty:ty, $write_fn:ident $(,)?) => {
+            impl $crate::types::ProtobufValue<$from_ty> for $proto_ty<$field_ty>
+            where
+                $field_ty: std::convert::From<$from_ty>,
+            {
+                fn write_value<W: $crate::Writer>(
+                    writer: &mut W,
+                    value: &$from_ty,
+                ) -> $crate::ProtoResult<()> {
+                    writer.$write_fn(<$field_ty>::from(*value))
+                }
+            }
+        };
+    }
 
     macro_rules! generate_protobuf_ref_types {
-		(proto_ty => $ty_name:ident, wire_type => $wire_type:ident, rust_types => [$($rust_ty:ty),+], write => { func => $write_fn:ident } $(,)?) => {
-			$(
-				impl $crate::types::ProtobufValue<$rust_ty> for $ty_name {
-					fn wire_type() -> $crate::types::WireType {
-						$crate::types::WireType::$wire_type
-					}
+        ($proto_ty:ident, $from_ty:ty, $write_fn:ident $(,)?) => {
+            impl $crate::types::ProtobufValue<$from_ty> for $proto_ty {
+                fn write_value<W: $crate::Writer>(
+                    writer: &mut W,
+                    value: &$from_ty,
+                ) -> $crate::ProtoResult<()> {
+                    writer.$write_fn(value)
+                }
+            }
 
-					fn write_value<W: $crate::Writer>(writer: &mut W, value: &$rust_ty) -> $crate::ProtoResult<()> {
-						writer.$write_fn(value)
-					}
-				}
-			)+
-		};
-	}
+            impl<'a> $crate::types::ProtobufValue<&'a $from_ty> for $proto_ty {
+                fn write_value<W: $crate::Writer>(
+                    writer: &mut W,
+                    value: &&'a $from_ty,
+                ) -> $crate::ProtoResult<()> {
+                    writer.$write_fn(value)
+                }
+            }
+        };
+    }
 
     /// A variable-length encoded unsigned 64-bit integer.
     ///
     /// This field type can occupy between one and ten bytes on the wire.
-    pub struct Varint;
+    pub struct Varint<T> {
+        _bound: PhantomData<T>,
+    }
+
+    impl<T> ProtobufType for Varint<T> {
+        fn wire_type() -> WireType {
+            WireType::Varint
+        }
+
+        fn packable() -> bool {
+            true
+        }
+    }
 
     /// A variable-length encoded signed 32-bit integer.
     ///
-    /// This field tye can occupy between one and five bytes on the wire.
-    pub struct Sint32;
+    /// This field type can occupy between one and five bytes on the wire.
+    pub struct Sint32<T> {
+        _bound: PhantomData<T>,
+    }
+
+    impl<T> ProtobufType for Sint32<T> {
+        fn wire_type() -> WireType {
+            WireType::Varint
+        }
+
+        fn packable() -> bool {
+            true
+        }
+    }
 
     /// A variable-length encoded signed 64-bit integer.
     ///
     /// This field type can occupy between one and ten bytes on the wire.
-    pub struct Sint64;
+    pub struct Sint64<T> {
+        _bound: PhantomData<T>,
+    }
+
+    impl<T> ProtobufType for Sint64<T> {
+        fn wire_type() -> WireType {
+            WireType::Varint
+        }
+
+        fn packable() -> bool {
+            true
+        }
+    }
 
     /// A fixed-length unsigned 32-bit integer.
     ///
     /// This field type always occupies four bytes on the wire.
-    pub struct Fixed32;
+    pub struct Fixed32<T> {
+        _bound: PhantomData<T>,
+    }
+
+    impl<T> ProtobufType for Fixed32<T> {
+        fn wire_type() -> WireType {
+            WireType::Fixed32
+        }
+
+        fn packable() -> bool {
+            true
+        }
+    }
 
     /// A fixed-length unsigned 64-bit integer.
     ///
     /// This field type always occupies eight bytes on the wire.
-    pub struct Fixed64;
+    pub struct Fixed64<T> {
+        _bound: PhantomData<T>,
+    }
+
+    impl<T> super::ProtobufType for Fixed64<T> {
+        fn wire_type() -> WireType {
+            WireType::Fixed64
+        }
+
+        fn packable() -> bool {
+            true
+        }
+    }
 
     /// A fixed-length signed 32-bit integer.
     ///
     /// This field type always occupies four bytes on the wire.
-    pub struct Sfixed32;
+    pub struct Sfixed32<T> {
+        _bound: PhantomData<T>,
+    }
+
+    impl<T> ProtobufType for Sfixed32<T> {
+        fn wire_type() -> WireType {
+            WireType::Fixed32
+        }
+
+        fn packable() -> bool {
+            true
+        }
+    }
 
     /// A fixed-length signed 64-bit integer.
     ///
     /// This field type always occupies eight bytes on the wire.
-    pub struct Sfixed64;
+    pub struct Sfixed64<T> {
+        _bound: PhantomData<T>,
+    }
+
+    impl<T> ProtobufType for Sfixed64<T> {
+        fn wire_type() -> WireType {
+            WireType::Fixed64
+        }
+
+        fn packable() -> bool {
+            true
+        }
+    }
 
     /// A variable-length chunk of bytes.
     pub struct Bytes;
 
-    generate_protobuf_primitive_types!(
-        proto_ty => Varint,
-        wire_type => Varint,
-        rust_types => [bool],
-        write => { func => write_bool, deref, as_type => bool },
-    );
-    generate_protobuf_primitive_types!(
-        proto_ty => Varint,
-        wire_type => Varint,
-        rust_types => [i8, i16, i32, i64, isize, u8, u16, u32, u64, usize],
-        write => { func => write_varint, deref, as_type => u64 },
-    );
-    generate_protobuf_primitive_types!(
-        proto_ty => Sint32,
-        wire_type => Varint,
-        rust_types => [i8, i16, i32],
-        write => { func => write_sint32, deref, as_type => i32 },
-    );
-    generate_protobuf_primitive_types!(
-        proto_ty => Sint64,
-        wire_type => Varint,
-        rust_types => [i8, i16, i32, i64, isize],
-        write => { func => write_sint64, deref, as_type => i64 },
-    );
-    generate_protobuf_primitive_types!(
-        proto_ty => Fixed32,
-        wire_type => Fixed32,
-        rust_types => [u8, u16, u32],
-        write => { func => write_fixed32, deref, as_type => u32 },
-    );
-    generate_protobuf_primitive_types!(
-        proto_ty => Fixed64,
-        wire_type => Fixed64,
-        rust_types => [u8, u16, u32, u64, usize],
-        write => { func => write_fixed64, deref, as_type => u64 },
-    );
-    generate_protobuf_primitive_types!(
-        proto_ty => Sfixed32,
-        wire_type => Fixed32,
-        rust_types => [i8, i16, i32],
-        write => { func => write_sfixed32, deref, as_type => i32 },
-    );
-    generate_protobuf_primitive_types!(
-        proto_ty => Sfixed32,
-        wire_type => Fixed32,
-        rust_types => [f32],
-        write => { func => write_float, deref, as_type => f32 },
-    );
-    generate_protobuf_primitive_types!(
-        proto_ty => Sfixed64,
-        wire_type => Fixed64,
-        rust_types => [i8, i16, i32, i64, isize],
-        write => { func => write_sfixed64, deref, as_type => i64 },
-    );
-    generate_protobuf_primitive_types!(
-        proto_ty => Sfixed64,
-        wire_type => Fixed64,
-        rust_types => [f64],
-        write => { func => write_double, deref, as_type => f64 },
-    );
-    generate_protobuf_ref_types!(
-        proto_ty => Bytes,
-        wire_type => LengthDelimited,
-        rust_types => [str],
-        write => { func => write_string },
-    );
-    generate_protobuf_ref_types!(
-        proto_ty => Bytes,
-        wire_type => LengthDelimited,
-        rust_types => [[u8]],
-        write => { func => write_bytes },
-    );
+    impl ProtobufType for Bytes {
+        fn wire_type() -> WireType {
+            WireType::LengthDelimited
+        }
+    }
+
+    // Scalars: booleans and floating-point numbers.
+    generate_protobuf_primitive_types!(Varint<bool>, bool, write_bool);
+    generate_protobuf_primitive_types!(Sfixed32<f32>, f32, write_float);
+    generate_protobuf_primitive_types!(Sfixed32<f32>, i8, write_float);
+    generate_protobuf_primitive_types!(Sfixed32<f32>, i16, write_float);
+    generate_protobuf_primitive_types!(Sfixed32<f32>, u8, write_float);
+    generate_protobuf_primitive_types!(Sfixed32<f32>, u16, write_float);
+    generate_protobuf_primitive_types!(Sfixed64<f64>, f32, write_double);
+    generate_protobuf_primitive_types!(Sfixed64<f64>, f64, write_double);
+    generate_protobuf_primitive_types!(Sfixed64<f64>, i8, write_double);
+    generate_protobuf_primitive_types!(Sfixed64<f64>, i16, write_double);
+    generate_protobuf_primitive_types!(Sfixed64<f64>, i32, write_double);
+    generate_protobuf_primitive_types!(Sfixed64<f64>, u8, write_double);
+    generate_protobuf_primitive_types!(Sfixed64<f64>, u16, write_double);
+    generate_protobuf_primitive_types!(Sfixed64<f64>, u32, write_double);
+
+    // Scalars: variable-width integers (signed and unsigned).
+    generate_protobuf_primitive_types!(Varint<u32>, u8, write_uint32);
+    generate_protobuf_primitive_types!(Varint<u32>, u16, write_uint32);
+    generate_protobuf_primitive_types!(Varint<u32>, u32, write_uint32);
+    generate_protobuf_primitive_types!(Varint<u64>, u8, write_uint64);
+    generate_protobuf_primitive_types!(Varint<u64>, u16, write_uint64);
+    generate_protobuf_primitive_types!(Varint<u64>, u32, write_uint64);
+    generate_protobuf_primitive_types!(Varint<u64>, u64, write_uint64);
+    generate_protobuf_primitive_types!(Varint<i32>, i8, write_int32);
+    generate_protobuf_primitive_types!(Varint<i32>, i16, write_int32);
+    generate_protobuf_primitive_types!(Varint<i32>, i32, write_int32);
+    generate_protobuf_primitive_types!(Varint<i64>, i8, write_int64);
+    generate_protobuf_primitive_types!(Varint<i64>, i16, write_int64);
+    generate_protobuf_primitive_types!(Varint<i64>, i32, write_int64);
+    generate_protobuf_primitive_types!(Varint<i64>, i64, write_int64);
+    generate_protobuf_primitive_types!(Sint32<i32>, i8, write_sint32);
+    generate_protobuf_primitive_types!(Sint32<i32>, i16, write_sint32);
+    generate_protobuf_primitive_types!(Sint32<i32>, i32, write_sint32);
+    generate_protobuf_primitive_types!(Sint64<i64>, i8, write_sint64);
+    generate_protobuf_primitive_types!(Sint64<i64>, i16, write_sint64);
+    generate_protobuf_primitive_types!(Sint64<i64>, i32, write_sint64);
+    generate_protobuf_primitive_types!(Sint64<i64>, i64, write_sint64);
+
+    // Scalars: fixed-width integers (signed and unsigned).
+    generate_protobuf_primitive_types!(Fixed32<u32>, u8, write_fixed32);
+    generate_protobuf_primitive_types!(Fixed32<u32>, u16, write_fixed32);
+    generate_protobuf_primitive_types!(Fixed32<u32>, u32, write_fixed32);
+    generate_protobuf_primitive_types!(Fixed64<u64>, u8, write_fixed64);
+    generate_protobuf_primitive_types!(Fixed64<u64>, u16, write_fixed64);
+    generate_protobuf_primitive_types!(Fixed64<u64>, u32, write_fixed64);
+    generate_protobuf_primitive_types!(Fixed64<u64>, u64, write_fixed64);
+    generate_protobuf_primitive_types!(Sfixed32<i32>, i8, write_sfixed32);
+    generate_protobuf_primitive_types!(Sfixed32<i32>, i16, write_sfixed32);
+    generate_protobuf_primitive_types!(Sfixed32<i32>, i32, write_sfixed32);
+    generate_protobuf_primitive_types!(Sfixed64<i64>, i8, write_sfixed64);
+    generate_protobuf_primitive_types!(Sfixed64<i64>, i16, write_sfixed64);
+    generate_protobuf_primitive_types!(Sfixed64<i64>, i32, write_sfixed64);
+    generate_protobuf_primitive_types!(Sfixed64<i64>, i64, write_sfixed64);
+
+    // Length-delimited types: strings and bytes.
+    generate_protobuf_ref_types!(Bytes, str, write_string);
+    generate_protobuf_ref_types!(Bytes, [u8], write_bytes);
 }
 
 /// Wire type.
@@ -162,7 +244,12 @@ pub enum WireType {
     /// See https://protobuf.dev/programming-guides/encoding/#varints for more information.
     Varint,
 
-    /// Fixed 64-bit integer or double-precision floating-point number.
+    /// Fixed 32-bit numerical value: (un)signed integer or single-precision floating point number.
+    ///
+    /// Consumes four bytes (32-bit) on the wire.
+    Fixed32,
+
+    /// Fixed 64-bit numerical value: (un)signed integer or double-precision floating point number.
     ///
     /// Consumes eight bytes (64-bit) on the wire.
     Fixed64,
@@ -172,11 +259,6 @@ pub enum WireType {
     /// Used for fields with variable length, such as strings, bytes, embedded messages, and packed
     /// repeated fields.
     LengthDelimited,
-
-    /// Fixed 32-bit integer or single-precision floating-point number.
-    ///
-    /// Consumes four bytes (32-bit) on the wire.
-    Fixed32,
 }
 
 impl WireType {
@@ -191,18 +273,21 @@ impl WireType {
     }
 }
 
-/// A Protocol Buffers value.
-pub trait ProtobufValue<T: ?Sized> {
-    /// [Wire type][wiretype] of the value.
-    ///
-    /// [wiretype]: https://protobuf.dev/programming-guides/encoding/#structure
+/// A Protocol Buffers type.
+///
+/// This trait is implemented by the integral wire types to describe how they are encoded on the wire.
+pub trait ProtobufType {
+    /// Returns the wire type for this type.
     fn wire_type() -> WireType;
 
-    /// Whether the value can be packed.
+    /// Returns `true` if this type can be packed.
     fn packable() -> bool {
         false
     }
+}
 
+/// A Protocol Buffers value.
+pub trait ProtobufValue<T: ?Sized>: ProtobufType {
     /// Writes the value to the given writer.
     ///
     /// # Errors
@@ -218,6 +303,23 @@ pub trait ProtobufValue<T: ?Sized> {
         Self::write_value(writer, value)
     }
 }
+
+/// A marker trait for types that can be used as map keys.
+///
+/// In Protocol Buffers, map keys can be any scalar type besides floating-point numbers and bytes.
+pub trait MapKey {}
+
+impl MapKey for bool {}
+impl MapKey for i8 {}
+impl MapKey for i16 {}
+impl MapKey for i32 {}
+impl MapKey for i64 {}
+impl MapKey for u8 {}
+impl MapKey for u16 {}
+impl MapKey for u32 {}
+impl MapKey for u64 {}
+impl MapKey for str {}
+impl MapKey for &str {}
 
 /// Message builder base trait.
 pub trait MessageBuilderBase<S> {
