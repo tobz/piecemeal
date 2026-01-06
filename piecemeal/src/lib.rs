@@ -7,8 +7,8 @@ pub mod helpers;
 pub mod io;
 pub mod types;
 
-pub use crate::builder::{GenericMapBuilder, MessageMapBuilder, RepeatedBuilder};
-pub use crate::io::{
+pub use self::builder::{GenericMapBuilder, MessageMapBuilder, RepeatedBuilder};
+pub use self::io::{
     scratch::{ScratchBuffer, ScratchWriter},
     writer::Writer,
 };

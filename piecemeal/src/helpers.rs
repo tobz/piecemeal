@@ -11,18 +11,9 @@ pub const fn tag(field_number: u32, wire_type: WireType) -> u32 {
 /// Computes the total field length of a varint-encoded u64 field.
 #[inline]
 pub const fn sizeof_varint(v: u64) -> usize {
-    match v {
-        0x0..=0x7F => 1,
-        0x80..=0x3FFF => 2,
-        0x4000..=0x1FFFFF => 3,
-        0x200000..=0xFFFFFFF => 4,
-        0x10000000..=0x7FFFFFFFF => 5,
-        0x0800000000..=0x3FFFFFFFFFF => 6,
-        0x040000000000..=0x1FFFFFFFFFFFF => 7,
-        0x02000000000000..=0xFFFFFFFFFFFFFF => 8,
-        0x0100000000000000..=0x7FFFFFFFFFFFFFFF => 9,
-        _ => 10,
-    }
+    // Each varint byte encodes 7 bits, so we essentially calculate how many 7-bit groups we need.
+    let bits = 64 - v.leading_zeros() as usize;
+    bits.saturating_sub(1) / 7 + 1
 }
 
 /// Computes the total field length for a string field.
@@ -76,10 +67,10 @@ pub const fn sizeof_uint64(v: u64) -> usize {
     sizeof_varint(v)
 }
 
-/// Computes the total field length for a fixed-size i32 field.
+/// Computes the total field length for a zigzag-encoded i32 field.
 #[inline]
 pub const fn sizeof_sint32(v: i32) -> usize {
-    sizeof_varint(((v << 1) ^ (v >> 31)) as u64)
+    sizeof_varint(((v << 1) ^ (v >> 31)) as u32 as u64)
 }
 
 /// Computes the total field length for a fixed-size i64 field.
@@ -314,13 +305,10 @@ mod tests {
 
     #[test]
     fn test_sizeof_sint32_extremes() {
-        // Note: The current implementation casts to u64 after the zigzag calculation,
-        // which causes sign extension. Both i32::MAX and i32::MIN result in negative
-        // i32 values after zigzag that get sign-extended to large u64 values.
-        // i32::MAX: ((i32::MAX << 1) ^ (i32::MAX >> 31)) = -2 as i32 -> u64::MAX - 1
-        // i32::MIN: ((i32::MIN << 1) ^ (i32::MIN >> 31)) = -1 as i32 -> u64::MAX
-        assert_eq!(sizeof_sint32(i32::MAX), 10);
-        assert_eq!(sizeof_sint32(i32::MIN), 10);
+        // Zigzag encoding maps i32::MAX to u32::MAX - 1 (0xFFFFFFFE) = 5 bytes
+        // Zigzag encoding maps i32::MIN to u32::MAX (0xFFFFFFFF) = 5 bytes
+        assert_eq!(sizeof_sint32(i32::MAX), 5);
+        assert_eq!(sizeof_sint32(i32::MIN), 5);
     }
 
     // sizeof_sint64() tests

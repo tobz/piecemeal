@@ -69,7 +69,7 @@ pub trait Writer {
 
     /// Writes a `sint32` which is internally coded as a `varint`
     fn write_sint32(&mut self, v: i32) -> io::Result<()> {
-        self.write_varint(((v << 1) ^ (v >> 31)) as u64)
+        self.write_varint(((v << 1) ^ (v >> 31)) as u32 as u64)
     }
 
     /// Writes a `sint64` which is internally coded as a `varint`
