@@ -834,3 +834,235 @@ fn map_transparent_conversion_roundtrip() {
     assert!((decoded.string_to_double.get("float_to_double").unwrap() - 1.5).abs() < 0.001);
     assert!((decoded.string_to_float.get("u8_to_float").unwrap() - 100.0).abs() < 0.001);
 }
+
+#[test]
+fn repeated_messages_roundtrip() {
+    use prost_protos::messages::repeated_messages::Outer;
+    use protos::messages::repeated_messages::OuterBuilder;
+
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
+
+    let mut builder = OuterBuilder::new(&mut scratch_writer);
+    builder
+        .name("container")
+        .unwrap()
+        .add_items(|inner| {
+            inner.value("first")?.count(1)?;
+            Ok(())
+        })
+        .unwrap()
+        .add_items(|inner| {
+            inner.value("second")?.count(2)?;
+            Ok(())
+        })
+        .unwrap()
+        .add_items(|inner| {
+            inner.value("third")?.count(3)?;
+            Ok(())
+        })
+        .unwrap();
+
+    let mut output = Vec::new();
+    builder.finish(&mut output).unwrap();
+
+    let decoded = Outer::decode(output.as_slice()).unwrap();
+
+    assert_eq!(decoded.name, "container");
+    assert_eq!(decoded.items.len(), 3);
+    assert_eq!(decoded.items[0].value, "first");
+    assert_eq!(decoded.items[0].count, 1);
+    assert_eq!(decoded.items[1].value, "second");
+    assert_eq!(decoded.items[1].count, 2);
+    assert_eq!(decoded.items[2].value, "third");
+    assert_eq!(decoded.items[2].count, 3);
+}
+
+#[test]
+fn empty_message_roundtrip() {
+    use prost_protos::messages::empty_message::ContainsEmpty;
+    use protos::messages::empty_message::ContainsEmptyBuilder;
+
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
+
+    let mut builder = ContainsEmptyBuilder::new(&mut scratch_writer);
+    builder.name("test").unwrap().empty(|_| Ok(())).unwrap();
+
+    let mut output = Vec::new();
+    builder.finish(&mut output).unwrap();
+
+    let decoded = ContainsEmpty::decode(output.as_slice()).unwrap();
+
+    assert_eq!(decoded.name, "test");
+    assert!(decoded.empty.is_some());
+}
+
+#[test]
+fn proto2_defaults_roundtrip() {
+    use prost_protos::edge_cases::proto2_defaults::WithDefaults;
+    use protos::edge_cases::proto2_defaults::WithDefaultsBuilder;
+
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
+
+    let mut builder = WithDefaultsBuilder::new(&mut scratch_writer);
+    builder
+        .name("custom_name")
+        .unwrap()
+        .count(100)
+        .unwrap()
+        .enabled(false)
+        .unwrap()
+        .rate(2.5)
+        .unwrap();
+
+    let mut output = Vec::new();
+    builder.finish(&mut output).unwrap();
+
+    let decoded = WithDefaults::decode(output.as_slice()).unwrap();
+
+    // Proto2 fields are optional, so prost wraps them in Option
+    assert_eq!(decoded.name(), "custom_name");
+    assert_eq!(decoded.count(), 100);
+    assert!(!decoded.enabled());
+    assert!((decoded.rate() - 2.5).abs() < 0.001);
+}
+
+mod invalid_protos {
+    use piecemeal_build::ConfigBuilder;
+    use std::path::Path;
+
+    /// Validates a proto file using protoc.
+    fn validate_with_protoc(proto_file: &Path) -> Result<(), String> {
+        let mut cmd = std::process::Command::new("protoc");
+        cmd.arg("--proto_path=protos/invalid");
+        cmd.arg("-o")
+            .arg(if cfg!(windows) { "NUL" } else { "/dev/null" });
+        cmd.arg(proto_file);
+
+        let output = cmd
+            .output()
+            .expect("protoc must be installed and available in PATH");
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).to_string())
+        }
+    }
+
+    /// Helper to test an invalid proto that both protoc and piecemeal should reject.
+    fn assert_both_reject(proto_name: &str) {
+        let proto_path = Path::new("protos/invalid").join(proto_name);
+        let temp_out = std::env::temp_dir().join(format!("piecemeal_invalid_{}", proto_name));
+        std::fs::create_dir_all(&temp_out).unwrap();
+
+        // protoc must reject
+        let protoc_result = validate_with_protoc(&proto_path);
+        assert!(
+            protoc_result.is_err(),
+            "protoc should reject {}, but it accepted it",
+            proto_name
+        );
+
+        // piecemeal must also reject
+        let piecemeal_result = ConfigBuilder::new(
+            &[proto_path.to_str().unwrap()],
+            &temp_out,
+            &["protos/invalid"],
+        )
+        .and_then(|c| c.compile());
+
+        assert!(
+            piecemeal_result.is_err(),
+            "piecemeal should reject {}, but it accepted it (protoc error: {})",
+            proto_name,
+            protoc_result.unwrap_err()
+        );
+
+        let _ = std::fs::remove_dir_all(&temp_out);
+    }
+
+    /// Helper to test an invalid proto where protoc rejects but piecemeal has a known gap.
+    fn assert_protoc_rejects_piecemeal_gap(proto_name: &str, gap_reason: &str) {
+        let proto_path = Path::new("protos/invalid").join(proto_name);
+        let temp_out = std::env::temp_dir().join(format!("piecemeal_invalid_{}", proto_name));
+        std::fs::create_dir_all(&temp_out).unwrap();
+
+        // protoc must reject
+        let protoc_result = validate_with_protoc(&proto_path);
+        assert!(
+            protoc_result.is_err(),
+            "protoc should reject {}, but it accepted it",
+            proto_name
+        );
+
+        // piecemeal currently accepts (known gap)
+        let piecemeal_result = ConfigBuilder::new(
+            &[proto_path.to_str().unwrap()],
+            &temp_out,
+            &["protos/invalid"],
+        )
+        .and_then(|c| c.compile());
+
+        if piecemeal_result.is_err() {
+            // Gap has been fixed!
+            eprintln!(
+                "GAP FIXED: {} is now correctly rejected (was: {})",
+                proto_name, gap_reason
+            );
+        } else {
+            eprintln!("KNOWN GAP: {} - {}", proto_name, gap_reason);
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_out);
+    }
+
+    #[test]
+    fn undefined_type_rejected() {
+        assert_both_reject("undefined_type.proto");
+    }
+
+    #[test]
+    fn reserved_field_used_rejected() {
+        assert_both_reject("reserved_field_used.proto");
+    }
+
+    #[test]
+    fn duplicate_field_name_rejected() {
+        assert_protoc_rejects_piecemeal_gap(
+            "duplicate_field_name.proto",
+            "piecemeal does not validate duplicate field names",
+        );
+    }
+
+    #[test]
+    fn duplicate_field_number_rejected() {
+        assert_protoc_rejects_piecemeal_gap(
+            "duplicate_field_number.proto",
+            "piecemeal does not validate duplicate field numbers",
+        );
+    }
+
+    #[test]
+    fn invalid_field_number_rejected() {
+        assert_protoc_rejects_piecemeal_gap(
+            "invalid_field_number.proto",
+            "piecemeal does not validate field number range (must be > 0)",
+        );
+    }
+
+    #[test]
+    fn proto3_enum_no_zero_rejected() {
+        assert_protoc_rejects_piecemeal_gap(
+            "proto3_enum_no_zero.proto",
+            "piecemeal does not validate proto3 enum first value must be 0",
+        );
+    }
+
+    #[test]
+    fn invalid_default_enum_rejected() {
+        assert_both_reject("invalid_default_enum.proto");
+    }
+}

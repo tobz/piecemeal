@@ -27,20 +27,17 @@ pub enum Error {
     /// Encountered an invalid message definition.
     InvalidMessage(String),
 
-    /// Varint decoding error
+    /// An invalid file import was encounterd.
     InvalidImport(String),
 
-    /// Empty read
+    /// An input file was parsed but yielded no message or enum definitions.
     EmptyRead,
 
-    /// Enum or message not found
+    /// A message or enum was not found.
     MessageOrEnumNotFound(String),
 
-    /// Invalid default enum
+    /// An invalid enum variant was marked as the default value.
     InvalidDefaultEnum(String),
-
-    /// Detected a cycle in the definition.
-    Cycle(Vec<String>),
 }
 
 impl From<io::Error> for Error {
@@ -92,7 +89,7 @@ impl std::fmt::Display for Error {
             ),
             Self::EmptyRead => write!(
                 f,
-                "no messages or enums were read (definition may be invalid or only unsupported structures were defined)"
+                "an input file was parsed but yielded no message or enum definitions"
             ),
             Self::MessageOrEnumNotFound(me) => {
                 write!(f, "could not find message or enum '{}'", me)
@@ -104,11 +101,6 @@ impl std::fmt::Display for Error {
                     en
                 )
             }
-            Self::Cycle(msgs) => write!(
-                f,
-                "messages {:?} are cyclic (missing an optional field)",
-                msgs
-            ),
         }
     }
 }

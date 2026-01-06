@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package invalid.proto3_enum_no_zero;
+
+// Error: In proto3, the first enum value must be 0
+enum BadEnum {
+    FIRST = 1;
+    SECOND = 2;
+}
+
+message Container {
+    BadEnum value = 1;
+}

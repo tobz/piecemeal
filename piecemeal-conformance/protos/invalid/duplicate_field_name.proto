@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package invalid.duplicate_field_name;
+
+// Error: Two fields have the same name
+message Container {
+    int32 value = 1;
+    string value = 2;
+}

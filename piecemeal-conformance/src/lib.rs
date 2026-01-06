@@ -49,6 +49,12 @@ pub mod prost_protos {
                 "/protos/prost/messages.empty_message.rs"
             ));
         }
+        pub mod repeated_messages {
+            include!(concat!(
+                env!("OUT_DIR"),
+                "/protos/prost/messages.repeated_messages.rs"
+            ));
+        }
     }
     pub mod oneofs {
         pub mod basic_oneof {
@@ -105,6 +111,12 @@ pub mod prost_protos {
             include!(concat!(
                 env!("OUT_DIR"),
                 "/protos/prost/edge_cases.reserved_keywords.rs"
+            ));
+        }
+        pub mod proto2_defaults {
+            include!(concat!(
+                env!("OUT_DIR"),
+                "/protos/prost/edge_cases.proto2_defaults.rs"
             ));
         }
     }

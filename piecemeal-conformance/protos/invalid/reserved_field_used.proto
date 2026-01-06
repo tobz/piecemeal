@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package invalid.reserved_field_used;
+
+// Error: Field number 1 is reserved but used
+message Container {
+    reserved 1, 2;
+    reserved "old_field";
+
+    int32 value = 1;
+}

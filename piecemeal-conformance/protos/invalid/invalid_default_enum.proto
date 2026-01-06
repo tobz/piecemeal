@@ -1,0 +1,14 @@
+syntax = "proto2";
+
+package invalid.invalid_default_enum;
+
+enum Status {
+    UNKNOWN = 0;
+    ACTIVE = 1;
+    INACTIVE = 2;
+}
+
+// Error: Default value NONEXISTENT does not exist in Status enum
+message Container {
+    optional Status status = 1 [default = NONEXISTENT];
+}

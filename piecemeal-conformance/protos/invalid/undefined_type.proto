@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+package invalid.undefined_type;
+
+// Error: UndefinedType is not defined
+message Container {
+    UndefinedType value = 1;
+}

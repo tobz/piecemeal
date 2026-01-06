@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package messages.repeated_messages;
+
+message Inner {
+    string value = 1;
+    int32 count = 2;
+}
+
+message Outer {
+    repeated Inner items = 1;
+    string name = 2;
+}

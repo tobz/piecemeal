@@ -1515,4 +1515,58 @@ mod test {
             Frequency::Proto3Frequency(Proto3Frequency::Optional)
         ));
     }
+
+    #[test]
+    fn test_hex_uint32() {
+        let (rem, val) = hex_uint32("0x1A").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(val, 0x1A);
+
+        let (rem, val) = hex_uint32("0xDEADBEEF").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(val, 0xDEADBEEF);
+    }
+
+    #[test]
+    fn test_hex_int32() {
+        let (rem, val) = hex_int32("0xFF").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(val, 0xFF);
+    }
+
+    #[test]
+    fn test_block_comment() {
+        let (rem, _) = block_comment("/* this is a comment */").unwrap();
+        assert_eq!(rem, "");
+
+        let (rem, _) = block_comment("/* multi\nline\ncomment */rest").unwrap();
+        assert_eq!(rem, "rest");
+    }
+
+    #[test]
+    fn test_block_comment_in_message() {
+        let msg = r#"message Test {
+            /* field comment */
+            int32 value = 1;
+        }"#;
+        let result = message(Syntax::Proto3)(msg);
+        assert!(result.is_ok());
+        let (_, msg) = result.unwrap();
+        assert_eq!(msg.fields.len(), 1);
+        assert_eq!(msg.fields[0].name, "value");
+    }
+
+    #[test]
+    fn test_mixed_comments() {
+        let msg = r#"message Test {
+            // line comment
+            /* block comment */
+            int32 a = 1;
+            /* another */ int32 b = 2; // trailing
+        }"#;
+        let result = message(Syntax::Proto3)(msg);
+        assert!(result.is_ok());
+        let (_, msg) = result.unwrap();
+        assert_eq!(msg.fields.len(), 2);
+    }
 }
