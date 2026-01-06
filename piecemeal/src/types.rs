@@ -1,6 +1,8 @@
 //! Common types and traits.
 
-use super::{ProtoResult, ScratchWriter, Writer, helpers::tag};
+use ::std::io;
+
+use super::{ScratchWriter, Writer, helpers::tag};
 
 mod private {
     pub trait Sealed {}
@@ -21,7 +23,7 @@ pub mod protobuf {
                 fn write_value<W: $crate::Writer>(
                     writer: &mut W,
                     value: &$from_ty,
-                ) -> $crate::ProtoResult<()> {
+                ) -> ::std::io::Result<()> {
                     writer.$write_fn(<$field_ty>::from(*value))
                 }
             }
@@ -34,7 +36,7 @@ pub mod protobuf {
                 fn write_value<W: $crate::Writer>(
                     writer: &mut W,
                     value: &$from_ty,
-                ) -> $crate::ProtoResult<()> {
+                ) -> ::std::io::Result<()> {
                     writer.$write_fn(value)
                 }
             }
@@ -43,7 +45,7 @@ pub mod protobuf {
                 fn write_value<W: $crate::Writer>(
                     writer: &mut W,
                     value: &&'a $from_ty,
-                ) -> $crate::ProtoResult<()> {
+                ) -> ::std::io::Result<()> {
                     writer.$write_fn(value)
                 }
             }
@@ -307,12 +309,12 @@ pub trait ProtobufValue<T: ?Sized>: ProtobufType {
     /// # Errors
     ///
     /// If the value cannot be written to the writer, an error is returned.
-    fn write_value<W: Writer>(writer: &mut W, value: &T) -> ProtoResult<()>;
+    fn write_value<W: Writer>(writer: &mut W, value: &T) -> io::Result<()>;
 
     /// Writes the value as a complete field to the given writer.
     ///
     /// # Errors
-    fn write_field<W: Writer>(writer: &mut W, field_number: u32, value: &T) -> ProtoResult<()> {
+    fn write_field<W: Writer>(writer: &mut W, field_number: u32, value: &T) -> io::Result<()> {
         writer.write_tag(tag(field_number, Self::wire_type()))?;
         Self::write_value(writer, value)
     }

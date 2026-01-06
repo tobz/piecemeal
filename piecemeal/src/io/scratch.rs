@@ -1,8 +1,8 @@
 //! Scratch buffers and writer.
 
-use std::{cmp::Reverse, collections::BinaryHeap};
+use std::{cmp::Reverse, collections::BinaryHeap, io};
 
-use crate::{ProtoResult, helpers::sizeof_varint};
+use crate::helpers::sizeof_varint;
 
 use super::writer::Writer;
 
@@ -86,9 +86,9 @@ impl<B: ScratchBuffer> ScratchWriter<B> {
     }
 
     /// Tracks the given operation.
-    pub fn track_message<F>(&mut self, f: F) -> ProtoResult<()>
+    pub fn track_message<F>(&mut self, f: F) -> io::Result<()>
     where
-        F: FnOnce(&mut Self) -> ProtoResult<()>,
+        F: FnOnce(&mut Self) -> io::Result<()>,
     {
         // Track the before/after size of the message in the scratch buffer, including how many length bytes were
         // written for any submessages.
@@ -122,7 +122,7 @@ impl<B: ScratchBuffer> ScratchWriter<B> {
     /// # Errors
     ///
     /// If there is an error writing the scratch buffer into the given writer, an error will be returned.
-    pub fn finish<W>(&mut self, writer: &mut W, write_length_delimiter: bool) -> ProtoResult<()>
+    pub fn finish<W>(&mut self, writer: &mut W, write_length_delimiter: bool) -> io::Result<()>
     where
         W: Writer,
     {
@@ -163,35 +163,35 @@ impl<B: ScratchBuffer> ScratchWriter<B> {
 }
 
 impl<B: ScratchBuffer> Writer for ScratchWriter<B> {
-    fn pb_write_u8(&mut self, x: u8) -> ProtoResult<()> {
+    fn pb_write_u8(&mut self, x: u8) -> std::io::Result<()> {
         self.buffer.pb_write_u8(x)
     }
 
-    fn pb_write_u32(&mut self, x: u32) -> ProtoResult<()> {
+    fn pb_write_u32(&mut self, x: u32) -> std::io::Result<()> {
         self.buffer.pb_write_u32(x)
     }
 
-    fn pb_write_i32(&mut self, x: i32) -> ProtoResult<()> {
+    fn pb_write_i32(&mut self, x: i32) -> std::io::Result<()> {
         self.buffer.pb_write_i32(x)
     }
 
-    fn pb_write_f32(&mut self, x: f32) -> ProtoResult<()> {
+    fn pb_write_f32(&mut self, x: f32) -> std::io::Result<()> {
         self.buffer.pb_write_f32(x)
     }
 
-    fn pb_write_u64(&mut self, x: u64) -> ProtoResult<()> {
+    fn pb_write_u64(&mut self, x: u64) -> std::io::Result<()> {
         self.buffer.pb_write_u64(x)
     }
 
-    fn pb_write_i64(&mut self, x: i64) -> ProtoResult<()> {
+    fn pb_write_i64(&mut self, x: i64) -> std::io::Result<()> {
         self.buffer.pb_write_i64(x)
     }
 
-    fn pb_write_f64(&mut self, x: f64) -> ProtoResult<()> {
+    fn pb_write_f64(&mut self, x: f64) -> std::io::Result<()> {
         self.buffer.pb_write_f64(x)
     }
 
-    fn pb_write_all(&mut self, buf: &[u8]) -> ProtoResult<()> {
+    fn pb_write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
         self.buffer.pb_write_all(buf)
     }
 }

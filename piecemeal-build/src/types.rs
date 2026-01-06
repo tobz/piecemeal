@@ -548,14 +548,14 @@ impl Message {
         writeln!(w)?;
         writeln!(
             w,
-            "    pub fn finish<W: Writer>(self, output: &mut W) -> ProtoResult<()> {{"
+            "    pub fn finish<W: Writer>(self, output: &mut W) -> std::io::Result<()> {{"
         )?;
         writeln!(w, "        self.writer.finish(output, false)")?;
         writeln!(w, "    }}")?;
         writeln!(w)?;
         writeln!(
             w,
-            "    pub fn finish_length_delimited<W: Writer>(self, output: &mut W) -> ProtoResult<()> {{"
+            "    pub fn finish_length_delimited<W: Writer>(self, output: &mut W) -> std::io::Result<()> {{"
         )?;
         writeln!(w, "        self.writer.finish(output, true)")?;
         writeln!(w, "    }}")?;
@@ -616,13 +616,13 @@ impl Message {
         if is_repeated {
             writeln!(
                 w,
-                "    pub fn {}<F>(&mut self, f: F) -> ProtoResult<&mut Self>",
+                "    pub fn {}<F>(&mut self, f: F) -> std::io::Result<&mut Self>",
                 field.name
             )?;
             writeln!(w, "    where")?;
             writeln!(
                 w,
-                "        F: for<'a> FnOnce(&mut RepeatedBuilder<'a, S, {}>) -> ProtoResult<()>,",
+                "        F: for<'a> FnOnce(&mut RepeatedBuilder<'a, S, {}>) -> std::io::Result<()>,",
                 proto_typ,
             )?;
             writeln!(w, "    {{")?;
@@ -644,7 +644,7 @@ impl Message {
             };
             writeln!(
                 w,
-                "    pub fn {}(&mut self, value: {}) -> ProtoResult<&mut Self> {{",
+                "    pub fn {}(&mut self, value: {}) -> std::io::Result<&mut Self> {{",
                 field.name, value_typ
             )?;
             writeln!(
@@ -674,13 +674,13 @@ impl Message {
 
         writeln!(
             w,
-            "    pub fn {}<F>(&mut self, f: F) -> ProtoResult<&mut Self>",
+            "    pub fn {}<F>(&mut self, f: F) -> std::io::Result<&mut Self>",
             method_name
         )?;
         writeln!(w, "    where")?;
         writeln!(
             w,
-            "        F: for<'a> FnOnce(&mut {}Builder<'a, S>) -> ProtoResult<()>",
+            "        F: for<'a> FnOnce(&mut {}Builder<'a, S>) -> std::io::Result<()>",
             typ
         )?;
         writeln!(w, "    {{")?;
@@ -818,7 +818,7 @@ impl Message {
 
         writeln!(
             w,
-            "    pub fn {}(&mut self, value: {}) -> ProtoResult<()> {{",
+            "    pub fn {}(&mut self, value: {}) -> std::io::Result<()> {{",
             field.name, value_typ
         )?;
         writeln!(
@@ -842,13 +842,13 @@ impl Message {
 
         writeln!(
             w,
-            "    pub fn {}<F>(&mut self, f: F) -> ProtoResult<()>",
+            "    pub fn {}<F>(&mut self, f: F) -> std::io::Result<()>",
             field.name
         )?;
         writeln!(w, "    where")?;
         writeln!(
             w,
-            "        F: for<'a> FnOnce(&mut {}Builder<'a, S>) -> ProtoResult<()>",
+            "        F: for<'a> FnOnce(&mut {}Builder<'a, S>) -> std::io::Result<()>",
             typ
         )?;
         writeln!(w, "    {{")?;
@@ -877,13 +877,13 @@ impl Message {
         writeln!(w)?;
         writeln!(
             w,
-            "    pub fn {}<F>(&mut self, f: F) -> ProtoResult<&mut Self>",
+            "    pub fn {}<F>(&mut self, f: F) -> std::io::Result<&mut Self>",
             oneof.name
         )?;
         writeln!(w, "    where")?;
         writeln!(
             w,
-            "        F: FnOnce(&mut {}<'_, S>) -> ProtoResult<()>,",
+            "        F: FnOnce(&mut {}<'_, S>) -> std::io::Result<()>,",
             builder_name
         )?;
         writeln!(w, "    {{")?;
@@ -1561,7 +1561,7 @@ impl FileDescriptor {
 
         writeln!(
             w,
-            "use ::piecemeal::{{helpers::*, types::{{protobuf::*, MapKey, MessageBuilderBase, MessageBuilder, WireType}}, ScratchBuffer, ScratchWriter, Writer, ProtoResult}};"
+            "use ::piecemeal::{{helpers::*, types::{{protobuf::*, MapKey, MessageBuilderBase, MessageBuilder, WireType}}, ScratchBuffer, ScratchWriter, Writer}};"
         )?;
         Ok(())
     }
@@ -2451,7 +2451,7 @@ mod tests {
         msg.write_oneof_variant_scalar(&mut buf, &field, &desc)
             .unwrap();
         let output = String::from_utf8(buf).unwrap();
-        assert!(output.contains("pub fn name(&mut self, value: &str) -> ProtoResult<()>"));
+        assert!(output.contains("pub fn name(&mut self, value: &str) -> std::io::Result<()>"));
         assert!(output.contains("write_with_tag("));
         assert!(output.contains("write_string(value)"));
     }
@@ -2466,7 +2466,7 @@ mod tests {
             .unwrap();
         let output = String::from_utf8(buf).unwrap();
         // Primitive types are not borrowed
-        assert!(output.contains("pub fn count(&mut self, value: i32) -> ProtoResult<()>"));
+        assert!(output.contains("pub fn count(&mut self, value: i32) -> std::io::Result<()>"));
         assert!(output.contains("write_int32(value)"));
     }
 
@@ -2493,7 +2493,7 @@ mod tests {
         msg.write_oneof_variant_message(&mut buf, &field, &desc)
             .unwrap();
         let output = String::from_utf8(buf).unwrap();
-        assert!(output.contains("pub fn sub_msg<F>(&mut self, f: F) -> ProtoResult<()>"));
+        assert!(output.contains("pub fn sub_msg<F>(&mut self, f: F) -> std::io::Result<()>"));
         assert!(output.contains("test::SubMessageBuilder<'a, S>"));
         assert!(output.contains("track_message"));
     }

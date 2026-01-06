@@ -1,9 +1,9 @@
 //! General builder types for working with certain field types.
 
-use std::marker::PhantomData;
+use std::{io, marker::PhantomData};
 
 use crate::{
-    ProtoResult, ScratchBuffer, ScratchWriter, Writer,
+    ScratchBuffer, ScratchWriter, Writer,
     helpers::*,
     types::{MapKey, MessageBuilder, ProtobufType, ProtobufValue, WireType},
 };
@@ -33,7 +33,7 @@ where
     }
 
     /// Writes an entry to the map.
-    pub fn write_entry<K2, V2>(&mut self, key: K2, value: V2) -> ProtoResult<()>
+    pub fn write_entry<K2, V2>(&mut self, key: K2, value: V2) -> io::Result<()>
     where
         K: ProtobufValue<K2>,
         K2: MapKey,
@@ -77,11 +77,11 @@ where
     ///
     /// The callback receives a mutable reference to the value builder and should
     /// populate the message fields.
-    pub fn write_entry<K2, F>(&mut self, key: K2, f: F) -> ProtoResult<()>
+    pub fn write_entry<K2, F>(&mut self, key: K2, f: F) -> io::Result<()>
     where
         K: ProtobufValue<K2>,
         K2: MapKey,
-        F: FnOnce(&mut V::Builder<'_>) -> ProtoResult<()>,
+        F: FnOnce(&mut V::Builder<'_>) -> io::Result<()>,
     {
         self.writer.write_tag(self.field_tag)?;
         self.writer.track_message(move |sw| {
@@ -124,7 +124,7 @@ where
     }
 
     /// Adds a new value to the repeated field.
-    pub fn add<V>(&mut self, value: V) -> ProtoResult<()>
+    pub fn add<V>(&mut self, value: V) -> io::Result<()>
     where
         T: ProtobufValue<V>,
     {
@@ -134,7 +134,7 @@ where
     }
 
     /// Adds new values from an iterator to the repeated field.
-    pub fn add_many<I, IT>(&mut self, values: I) -> ProtoResult<()>
+    pub fn add_many<I, IT>(&mut self, values: I) -> io::Result<()>
     where
         I: IntoIterator<Item = IT>,
         T: ProtobufValue<IT>,
@@ -143,7 +143,7 @@ where
     }
 
     /// Adds new values from an iterator to the repeated field after mapping their value.
-    pub fn add_many_mapped<'a, I, IT, F, R>(&mut self, values: I, map: F) -> ProtoResult<()>
+    pub fn add_many_mapped<'a, I, IT, F, R>(&mut self, values: I, map: F) -> io::Result<()>
     where
         I: IntoIterator<Item = IT>,
         IT: 'a,
