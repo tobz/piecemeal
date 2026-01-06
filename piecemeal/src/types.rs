@@ -2,6 +2,10 @@
 
 use super::{ProtoResult, ScratchWriter, Writer, helpers::tag};
 
+mod private {
+    pub trait Sealed {}
+}
+
 /// Automatically generated implementations of core traits for Protocol Buffers types.
 pub mod protobuf {
     use std::marker::PhantomData;
@@ -174,6 +178,16 @@ pub mod protobuf {
         }
     }
 
+    // Sealed trait implementations for all wire types.
+    impl<T> super::private::Sealed for Varint<T> {}
+    impl<T> super::private::Sealed for Sint32<T> {}
+    impl<T> super::private::Sealed for Sint64<T> {}
+    impl<T> super::private::Sealed for Fixed32<T> {}
+    impl<T> super::private::Sealed for Fixed64<T> {}
+    impl<T> super::private::Sealed for Sfixed32<T> {}
+    impl<T> super::private::Sealed for Sfixed64<T> {}
+    impl super::private::Sealed for Bytes {}
+
     // Scalars: booleans and floating-point numbers.
     generate_protobuf_primitive_types!(Varint<bool>, bool, write_bool);
     generate_protobuf_primitive_types!(Sfixed32<f32>, f32, write_float);
@@ -276,7 +290,7 @@ impl WireType {
 /// A Protocol Buffers type.
 ///
 /// This trait is implemented by the integral wire types to describe how they are encoded on the wire.
-pub trait ProtobufType {
+pub trait ProtobufType: private::Sealed {
     /// Returns the wire type for this type.
     fn wire_type() -> WireType;
 
@@ -307,7 +321,19 @@ pub trait ProtobufValue<T: ?Sized>: ProtobufType {
 /// A marker trait for types that can be used as map keys.
 ///
 /// In Protocol Buffers, map keys can be any scalar type besides floating-point numbers and bytes.
-pub trait MapKey {}
+pub trait MapKey: private::Sealed {}
+
+impl private::Sealed for bool {}
+impl private::Sealed for i8 {}
+impl private::Sealed for i16 {}
+impl private::Sealed for i32 {}
+impl private::Sealed for i64 {}
+impl private::Sealed for u8 {}
+impl private::Sealed for u16 {}
+impl private::Sealed for u32 {}
+impl private::Sealed for u64 {}
+impl private::Sealed for str {}
+impl<T: private::Sealed + ?Sized> private::Sealed for &T {}
 
 impl MapKey for bool {}
 impl MapKey for i8 {}
