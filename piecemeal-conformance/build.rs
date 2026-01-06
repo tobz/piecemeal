@@ -1,3 +1,4 @@
+use piecemeal_build::ConfigBuilder;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
@@ -9,7 +10,7 @@ fn main() {
     let piecemeal_out = out_dir.join("protos").join("piecemeal");
     let prost_out = out_dir.join("protos").join("prost");
 
-    // Discover all .proto files under protos/
+    // Discover all `.proto` files under `protos/`.
     let proto_files: Vec<PathBuf> = WalkDir::new("./protos")
         .into_iter()
         .filter_map(|e| e.ok())
@@ -22,33 +23,32 @@ fn main() {
     }
 
     println!(
-        "cargo:warning=piecemeal-conformance: Found {} proto files for conformance testing",
+        "Found {} proto files for conformance testing",
         proto_files.len()
     );
 
-    // Convert to string slices for piecemeal API
+    // Generate the builder code for all discovered `.proto` files.
     let proto_paths: Vec<&str> = proto_files
         .iter()
         .map(|p| p.to_str().expect("invalid path"))
         .collect();
 
-    // Generate piecemeal code
-    let config =
-        piecemeal_build::ConfigBuilder::new(&proto_paths[..], &piecemeal_out, &["./protos"])
-            .unwrap_or_else(|e| {
-                panic!("Failed to create piecemeal-build config: {}", e);
-            });
+    ConfigBuilder::new(&proto_paths[..], &piecemeal_out, &["./protos"])
+        .unwrap_or_else(|e| {
+            panic!("Failed to create piecemeal-build config: {}", e);
+        })
+        .compile()
+        .unwrap_or_else(|e| {
+            panic!("Failed to compile piecemeal code: {}", e);
+        });
 
-    piecemeal_build::types::FileDescriptor::run(&config.build()).unwrap_or_else(|e| {
-        panic!("Failed to generate piecemeal code: {}", e);
-    });
+    println!("Successfully generated piecemeal code for all proto files");
 
-    println!(
-        "cargo:warning=piecemeal-conformance: Successfully generated piecemeal code for all proto files"
-    );
+    // Generate owned structs for the discovered `.proto` files via `prost`.
+    //
+    // We use these for doing roundtripping during conformance tests.
 
-    // Generate prost code for roundtrip testing
-    // Separate the import test files from others since they require special include path handling
+    // Separate the import test files from others since they require special include path handling.
     let (import_protos, other_protos): (Vec<_>, Vec<_>) = proto_files
         .iter()
         .partition(|p| p.starts_with("./protos/imports"));
@@ -65,8 +65,9 @@ fn main() {
             });
     }
 
-    // Compile import protos with their subdirectory as include path
-    // This allows "import base_types.proto" to work correctly
+    // Compile import protos with their subdirectory as include path.
+    //
+    // This allows cases like "import base_types.proto" to work correctly.
     if !import_protos.is_empty() {
         prost_build::Config::new()
             .out_dir(&prost_out)
@@ -76,7 +77,5 @@ fn main() {
             });
     }
 
-    println!(
-        "cargo:warning=piecemeal-conformance: Successfully generated prost code for all proto files"
-    );
+    println!("Successfully generated prost code for all proto files");
 }

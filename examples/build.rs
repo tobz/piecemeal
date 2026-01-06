@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use piecemeal_build::ConfigBuilder;
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=protos/metrics.proto");
@@ -9,13 +11,8 @@ fn main() {
         .join("protos")
         .join("piecemeal");
 
-    let config = piecemeal_build::ConfigBuilder::new(
-        &["./protos/metrics.proto"],
-        out_directory,
-        &["./protos"],
-    )
-    .expect("failed to build `piecemeal-build` configuration");
-
-    piecemeal_build::types::FileDescriptor::run(&config.build())
+    ConfigBuilder::new(&["./protos/metrics.proto"], out_directory, &["./protos"])
+        .expect("failed to build `piecemeal-build` configuration")
+        .compile()
         .expect("failed to generate pure Protocol Buffers message types");
 }

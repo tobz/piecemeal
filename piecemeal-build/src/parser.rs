@@ -3,8 +3,8 @@ use std::str;
 use std::{convert::TryFrom, path::PathBuf};
 
 use crate::types::{
-    Enumeration, Extensions, Field, FieldType, FileDescriptor, Frequency, Message, OneOf,
-    Proto2Frequency, Proto3Frequency, Syntax,
+    Enumeration, Field, FieldType, FileDescriptor, Frequency, Message, OneOf, Proto2Frequency,
+    Proto3Frequency, Syntax,
 };
 
 use nom::{
@@ -35,7 +35,6 @@ enum MessageEvent {
     ReservedNums(Vec<u32>),
     ReservedNames(Vec<String>),
     OneOf(OneOf),
-    Extensions(Extensions),
     Ignore,
 }
 
@@ -156,7 +155,7 @@ fn package(input: &str) -> IResult<&str, String> {
     )(input)
 }
 
-fn extensions(input: &str) -> IResult<&str, Extensions> {
+fn extensions(input: &str) -> IResult<&str, ()> {
     map(
         delimited(
             pair(tag("extensions"), many1(br)),
@@ -166,16 +165,7 @@ fn extensions(input: &str) -> IResult<&str, Extensions> {
             ),
             tag(";"),
         ),
-        |(from, to)| {
-            // TODO: is there a better way to parse "max" or a number?
-            let s = to.trim();
-            let to = if s == "max" {
-                Extensions::MAX_FIELD_NUMBER
-            } else {
-                s.parse().unwrap()
-            };
-            Extensions { from, to }
-        },
+        |(_, _)| (),
     )(input)
 }
 
@@ -357,16 +347,6 @@ where
                         }
                     }),
                     typ,
-                    deprecated: key_vals
-                        .iter()
-                        .find_map(|&(k, v)| {
-                            if k == "deprecated" {
-                                Some(v.parse().expect("Cannot parse Deprecated value"))
-                            } else {
-                                None
-                            }
-                        })
-                        .unwrap_or(false),
                 })
             },
         )(input)
@@ -402,7 +382,6 @@ fn one_of(syntax: Syntax) -> impl FnMut(&str) -> IResult<&str, OneOf> {
                 fields,
                 package: "".to_string(),
                 module: "".to_string(),
-                imported: false,
             },
         )(input)
     }
@@ -460,7 +439,7 @@ fn message_event(syntax: Syntax) -> impl FnMut(&str) -> IResult<&str, MessageEve
             map(message(syntax), MessageEvent::Message),
             map(enumerator, MessageEvent::Enumerator),
             map(one_of(syntax), MessageEvent::OneOf),
-            map(extensions, MessageEvent::Extensions),
+            value(MessageEvent::Ignore, extensions),
             value(MessageEvent::Ignore, option_ignore),
             value(MessageEvent::Ignore, br),
         ))(input)
@@ -490,7 +469,6 @@ fn message(syntax: Syntax) -> impl FnMut(&str) -> IResult<&str, Message> {
                         MessageEvent::Message(m) => msg.nested_messages.push(m),
                         MessageEvent::Enumerator(e) => msg.nested_enums.push(e),
                         MessageEvent::OneOf(o) => msg.oneofs.push(o),
-                        MessageEvent::Extensions(e) => msg.extensions = Some(e),
                         MessageEvent::Ignore => (),
                     }
                 }
@@ -577,42 +555,39 @@ fn scan_syntax(input: &str) -> IResult<&str, Syntax> {
     })(input)
 }
 
-pub fn file_descriptor<'a>(
-    input: &'a str,
-) -> IResult<&'a str, FileDescriptor, nom::error::Error<String>> {
+pub fn parse_file_descriptor<'a>(input: &'a str) -> IResult<&'a str, FileDescriptor> {
     let got_syntax = scan_syntax(input).unwrap().1;
 
-    let parser =
-        move |input: &'a str| -> IResult<&'a str, FileDescriptor, nom::error::Error<&str>> {
-            map(
-                many0(alt((
-                    map(syntax, Event::Syntax),
-                    map(import, Event::Import),
-                    map(package, Event::Package),
-                    map(message(got_syntax), Event::Message),
-                    map(enumerator, Event::Enum),
-                    value(Event::Ignore, rpc_service),
-                    value(Event::Ignore, option_ignore),
-                    value(Event::Ignore, br),
-                ))),
-                |events| {
-                    let mut desc = FileDescriptor::default();
-                    for event in events {
-                        match event {
-                            Event::Syntax(s) => desc.syntax = s,
-                            Event::Import(i) => desc.import_paths.push(i),
-                            Event::Package(p) => desc.package = p,
-                            Event::Message(m) => desc.messages.push(m),
-                            Event::Enum(e) => desc.enums.push(e),
-                            Event::Ignore => (),
-                        }
+    let parser = move |input: &'a str| -> IResult<&'a str, FileDescriptor> {
+        map(
+            many0(alt((
+                map(syntax, Event::Syntax),
+                map(import, Event::Import),
+                map(package, Event::Package),
+                map(message(got_syntax), Event::Message),
+                map(enumerator, Event::Enum),
+                value(Event::Ignore, rpc_service),
+                value(Event::Ignore, option_ignore),
+                value(Event::Ignore, br),
+            ))),
+            |events| {
+                let mut desc = FileDescriptor::default();
+                for event in events {
+                    match event {
+                        Event::Syntax(s) => desc.syntax = s,
+                        Event::Import(i) => desc.import_paths.push(i),
+                        Event::Package(p) => desc.package = p,
+                        Event::Message(m) => desc.messages.push(m),
+                        Event::Enum(e) => desc.enums.push(e),
+                        Event::Ignore => (),
                     }
-                    desc
-                },
-            )(input)
-        };
+                }
+                desc
+            },
+        )(input)
+    };
 
-    parser(input).map_err(|e: nom::Err<nom::error::Error<&str>>| e.to_owned())
+    parser(input)
 }
 
 #[cfg(test)]
@@ -644,7 +619,7 @@ mod test {
     }
 
     fn assert_desc(msg: &str) -> Result<FileDescriptor, &str> {
-        let (rem, obj) = file_descriptor(msg).expect("valid parse");
+        let (rem, obj) = parse_file_descriptor(msg).expect("valid parse");
         result_assert_eq("", rem, Some("expected no trailing data"))?;
         Ok(obj)
     }
@@ -781,7 +756,7 @@ mod test {
                 required string a = 1;
             }
             "#;
-        let desc = file_descriptor(msg).unwrap().1;
+        let desc = parse_file_descriptor(msg).unwrap().1;
         assert_eq!("foo.bar".to_string(), desc.package);
         assert_eq!(1, desc.messages.len());
         assert_eq!(3, desc.messages[0].nested_messages.len());
@@ -800,7 +775,7 @@ mod test {
         optional ContainerForNested.NestedEnum e = 2;
     }
     "#;
-        let desc = file_descriptor(msg).unwrap().1;
+        let desc = parse_file_descriptor(msg).unwrap().1;
         assert_eq!(
             vec![Path::new("test_import_nested_imported_pb.proto")],
             desc.import_paths
@@ -828,7 +803,7 @@ mod test {
         optional ContainerForNested.NestedMessage m = 1;
         optional ContainerForNested.NestedEnum e = 2;
     }"#;
-        let desc = file_descriptor(msg).unwrap().1;
+        let desc = parse_file_descriptor(msg).unwrap().1;
         assert_eq!("foo.bar".to_string(), desc.package);
         assert_desc(msg).unwrap();
     }
@@ -842,7 +817,7 @@ mod test {
             optional int32 field = 1;
         }"#;
 
-        let desc = file_descriptor(msg).unwrap().1;
+        let desc = parse_file_descriptor(msg).unwrap().1;
         assert_eq!(1, desc.messages.len());
     }
 
@@ -853,40 +828,8 @@ mod test {
             option a_non_extension_option = 12345;
             TEST_FIELD = 0;
         }"#;
-        let desc = file_descriptor(msg).unwrap().1;
+        let desc = parse_file_descriptor(msg).unwrap().1;
         assert_eq!(1, desc.enums.len());
-    }
-
-    #[test]
-    fn test_extensions() {
-        let msg = r#"message A {
-            optional int32 a = 1;
-
-            extensions 1300 to max;
-        }
-        message B {
-            optional int32 b = 1;
-
-            extensions 10321 to 11000;
-        }
-        message c {
-            optional int32 c = 1;
-        }"#;
-
-        let desc = file_descriptor(msg).unwrap().1;
-        assert_eq!(3, desc.messages.len());
-        let a = &desc.messages[0].extensions;
-        let b = &desc.messages[1].extensions;
-        let c = &desc.messages[2].extensions;
-        assert!(a.is_some());
-        assert!(b.is_some());
-        assert!(c.is_none());
-        let a = a.as_ref().unwrap();
-        let b = b.as_ref().unwrap();
-        assert_eq!(a.from, 1300);
-        assert_eq!(a.to, Extensions::MAX_FIELD_NUMBER);
-        assert_eq!(b.from, 10321);
-        assert_eq!(b.to, 11000);
     }
 
     #[test]
@@ -903,7 +846,7 @@ mod test {
         optional int32 b = 1;
     }"#;
 
-        let desc = file_descriptor(msg).unwrap().1;
+        let desc = parse_file_descriptor(msg).unwrap().1;
         assert_eq!(1, desc.messages.len());
         assert_eq!(3, desc.messages[0].nested_messages.len());
         assert_desc(msg).unwrap();
@@ -1509,18 +1452,6 @@ mod test {
         assert!(result.is_ok());
         let (_, msg) = result.unwrap();
         assert_eq!(msg.fields[0].packed, Some(false));
-    }
-
-    #[test]
-    fn test_field_options_deprecated() {
-        // Test deprecated option
-        let input = r#"message Test {
-            string old_field = 1 [deprecated=true];
-        }"#;
-        let result = message(Syntax::Proto3)(input);
-        assert!(result.is_ok());
-        let (_, msg) = result.unwrap();
-        assert!(msg.fields[0].deprecated);
     }
 
     #[test]
