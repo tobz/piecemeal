@@ -360,3 +360,39 @@ pub trait MessageBuilder<S>: MessageBuilderBase<S> {
     /// Create a new message builder from the given writer.
     fn from_writer<'w>(writer: &'w mut ScratchWriter<S>) -> Self::Builder<'w>;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ProtobufValue;
+    use super::protobuf::Bytes;
+
+    #[test]
+    fn test_protobuf_value_str() {
+        let mut writer = Vec::new();
+        // Explicitly use ProtobufValue<str> impl (takes &str as value param)
+        <Bytes as ProtobufValue<str>>::write_value(&mut writer, "hello").unwrap();
+    }
+
+    #[test]
+    fn test_protobuf_value_bytes_slice() {
+        let mut writer = Vec::new();
+        // Explicitly use ProtobufValue<[u8]> impl (takes &[u8] as value param)
+        <Bytes as ProtobufValue<[u8]>>::write_value(&mut writer, &[1, 2, 3]).unwrap();
+    }
+
+    #[test]
+    fn test_protobuf_value_ref_str() {
+        let mut writer = Vec::new();
+        let s: &str = "hello";
+        // Explicitly use ProtobufValue<&str> impl (takes &&str as value param)
+        <Bytes as ProtobufValue<&str>>::write_value(&mut writer, &s).unwrap();
+    }
+
+    #[test]
+    fn test_protobuf_value_ref_bytes_slice() {
+        let mut writer = Vec::new();
+        let b: &[u8] = &[1, 2, 3];
+        // Explicitly use ProtobufValue<&[u8]> impl (takes &&[u8] as value param)
+        <Bytes as ProtobufValue<&[u8]>>::write_value(&mut writer, &b).unwrap();
+    }
+}

@@ -33,17 +33,10 @@ impl ScratchBuffer for Vec<u8> {
     }
 }
 
+#[derive(PartialEq, Eq)]
 struct LengthMarker {
     offset: usize,
     len: u64,
-}
-
-impl Eq for LengthMarker {}
-
-impl PartialEq for LengthMarker {
-    fn eq(&self, other: &Self) -> bool {
-        self.offset == other.offset
-    }
 }
 
 impl PartialOrd for LengthMarker {
@@ -90,18 +83,6 @@ impl<B: ScratchBuffer> ScratchWriter<B> {
             total_len_bytes: 0,
             len_markers: BinaryHeap::new(),
         }
-    }
-
-    /// Returns `true` if the scratch buffer is empty.
-    pub fn is_empty(&self) -> bool {
-        self.buffer.as_slice().is_empty()
-    }
-
-    /// Returns the length of the scratch buffer, including yet-to-be-written length markers.
-    ///
-    /// This does _not_ include the length of the buffer if a varint-encoded length delimiter was added.
-    pub fn len(&self) -> usize {
-        self.buffer.as_slice().len() + self.total_len_bytes
     }
 
     /// Tracks the given operation.

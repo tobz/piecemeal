@@ -666,6 +666,73 @@ fn map_more_types_roundtrip() {
 }
 
 #[test]
+fn repeated_all_types_roundtrip() {
+    // Tests all repeated field types to ensure full coverage of wire type implementations.
+    use prost_protos::repeated::repeated_scalars::RepeatedScalars;
+    use protos::repeated::repeated_scalars::RepeatedScalarsBuilder;
+
+    let scratch_buf = Vec::with_capacity(1024);
+    let mut scratch_writer = ScratchWriter::new(scratch_buf);
+
+    let mut builder = RepeatedScalarsBuilder::new(&mut scratch_writer);
+    builder
+        .int32_values(|rb| rb.add_many([1, 2, 3]))
+        .unwrap()
+        .int64_values(|rb| rb.add_many([100i64, 200, 300]))
+        .unwrap()
+        .string_values(|rb| rb.add_many(["a", "b", "c"]))
+        .unwrap()
+        .double_values(|rb| rb.add_many([1.5, 2.5, 3.5]))
+        .unwrap()
+        .uint32_values(|rb| rb.add_many([10u32, 20, 30]))
+        .unwrap()
+        .sint32_values(|rb| rb.add_many([-1i32, -2, -3]))
+        .unwrap()
+        .sint64_values(|rb| rb.add_many([-100i64, -200, -300]))
+        .unwrap()
+        .fixed32_values(|rb| rb.add_many([1000u32, 2000, 3000]))
+        .unwrap()
+        .fixed64_values(|rb| rb.add_many([10000u64, 20000, 30000]))
+        .unwrap()
+        .sfixed32_values(|rb| rb.add_many([-10i32, -20, -30]))
+        .unwrap()
+        .sfixed64_values(|rb| rb.add_many([-100i64, -200, -300]))
+        .unwrap()
+        .float_values(|rb| rb.add_many([0.5f32, 1.5, 2.5]))
+        .unwrap()
+        .bool_values(|rb| rb.add_many([true, false, true]))
+        .unwrap()
+        .bytes_values(|rb| rb.add_many([&[1u8, 2][..], &[3, 4][..], &[5, 6][..]]))
+        .unwrap()
+        .uint64_values(|rb| rb.add_many([100u64, 200, 300]))
+        .unwrap();
+
+    let mut output = Vec::new();
+    builder.finish(&mut output).unwrap();
+
+    let decoded = RepeatedScalars::decode(output.as_slice()).unwrap();
+
+    assert_eq!(decoded.int32_values, vec![1, 2, 3]);
+    assert_eq!(decoded.int64_values, vec![100, 200, 300]);
+    assert_eq!(decoded.string_values, vec!["a", "b", "c"]);
+    assert_eq!(decoded.double_values, vec![1.5, 2.5, 3.5]);
+    assert_eq!(decoded.uint32_values, vec![10, 20, 30]);
+    assert_eq!(decoded.sint32_values, vec![-1, -2, -3]);
+    assert_eq!(decoded.sint64_values, vec![-100, -200, -300]);
+    assert_eq!(decoded.fixed32_values, vec![1000, 2000, 3000]);
+    assert_eq!(decoded.fixed64_values, vec![10000, 20000, 30000]);
+    assert_eq!(decoded.sfixed32_values, vec![-10, -20, -30]);
+    assert_eq!(decoded.sfixed64_values, vec![-100, -200, -300]);
+    assert_eq!(decoded.float_values, vec![0.5, 1.5, 2.5]);
+    assert_eq!(decoded.bool_values, vec![true, false, true]);
+    assert_eq!(
+        decoded.bytes_values,
+        vec![vec![1u8, 2], vec![3, 4], vec![5, 6]]
+    );
+    assert_eq!(decoded.uint64_values, vec![100, 200, 300]);
+}
+
+#[test]
 fn map_transparent_conversion_roundtrip() {
     // Tests transparent conversion in map keys and values (e.g., i8 key -> int32 map).
     use prost_protos::maps::map_more_types::MapMoreTypes;

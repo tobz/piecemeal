@@ -6,7 +6,16 @@ message RepeatedScalars {
     repeated int32 int32_values = 1;
     repeated int64 int64_values = 2;
     repeated string string_values = 3;
-    // Note: repeated bool and repeated bytes are not yet supported by piecemeal
     repeated double double_values = 4;
     repeated uint32 uint32_values = 5;
+    repeated sint32 sint32_values = 6;
+    repeated sint64 sint64_values = 7;
+    repeated fixed32 fixed32_values = 8;
+    repeated fixed64 fixed64_values = 9;
+    repeated sfixed32 sfixed32_values = 10;
+    repeated sfixed64 sfixed64_values = 11;
+    repeated float float_values = 12;
+    repeated bool bool_values = 13;
+    repeated bytes bytes_values = 14;
+    repeated uint64 uint64_values = 15;
 }

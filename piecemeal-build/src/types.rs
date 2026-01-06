@@ -3643,4 +3643,99 @@ mod tests {
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("map fields are not allowed in oneof"));
     }
+
+    #[test]
+    fn test_write_rust_type_enum() {
+        let mut desc = create_test_descriptor();
+        desc.enums.push(Enumeration {
+            name: "Status".to_string(),
+            module: "test".to_string(),
+            ..Default::default()
+        });
+        let enum_type = FieldType::Enum(EnumIndex {
+            msg_index: MessageIndex::default(),
+            index: 0,
+        });
+        let result = enum_type.write_rust_type(&desc);
+        assert_eq!(result, "test::Status");
+    }
+
+    #[test]
+    fn test_read_proto_and_write_proto() {
+        let test_proto = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("piecemeal-conformance/protos/scalars/all_scalar_types.proto");
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config = Config {
+            in_file: test_proto,
+            out_dir: temp_dir.path().to_path_buf(),
+            single_module: false,
+            import_search_path: vec![],
+            headers: true,
+            add_deprecated_fields: false,
+        };
+        FileDescriptor::write_proto(&config).unwrap();
+
+        // Verify output file was created (package is scalars.all_scalar_types)
+        assert!(temp_dir.path().join("scalars/all_scalar_types.rs").exists());
+    }
+
+    #[test]
+    fn test_file_descriptor_run() {
+        let protos_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("piecemeal-conformance/protos");
+
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        let configs = vec![
+            Config {
+                in_file: protos_dir.join("scalars/all_scalar_types.proto"),
+                out_dir: temp_dir.path().to_path_buf(),
+                single_module: false,
+                import_search_path: vec![],
+                headers: true,
+                add_deprecated_fields: false,
+            },
+            Config {
+                in_file: protos_dir.join("enums/basic_enum.proto"),
+                out_dir: temp_dir.path().to_path_buf(),
+                single_module: false,
+                import_search_path: vec![],
+                headers: true,
+                add_deprecated_fields: false,
+            },
+        ];
+
+        FileDescriptor::run(&configs).unwrap();
+
+        // Verify both output files were created
+        assert!(temp_dir.path().join("scalars/all_scalar_types.rs").exists());
+        assert!(temp_dir.path().join("enums/basic_enum.rs").exists());
+    }
+
+    #[test]
+    fn test_write_proto_single_module() {
+        let test_proto = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("piecemeal-conformance/protos/scalars/all_scalar_types.proto");
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config = Config {
+            in_file: test_proto,
+            out_dir: temp_dir.path().to_path_buf(),
+            single_module: true, // This should flatten the package
+            import_search_path: vec![],
+            headers: true,
+            add_deprecated_fields: false,
+        };
+        FileDescriptor::write_proto(&config).unwrap();
+
+        // With single_module, file should be at root level with proto file name
+        assert!(temp_dir.path().join("all_scalar_types.rs").exists());
+    }
 }

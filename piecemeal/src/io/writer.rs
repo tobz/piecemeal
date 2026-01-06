@@ -32,11 +32,6 @@ pub trait Writer {
     /// Write all bytes in buf
     fn pb_write_all(&mut self, buf: &[u8]) -> ProtoResult<()>;
 
-    /// Writes a byte which is NOT internally coded as a `varint`
-    fn write_u8(&mut self, byte: u8) -> ProtoResult<()> {
-        self.pb_write_u8(byte)
-    }
-
     /// Writes a `varint` (compacted `u64`)
     fn write_varint(&mut self, mut v: u64) -> ProtoResult<()> {
         while v > 0x7F {
