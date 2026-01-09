@@ -967,12 +967,11 @@ mod invalid_protos {
         );
 
         // piecemeal must also reject
-        let piecemeal_result = ConfigBuilder::new(
-            &[proto_path.to_str().unwrap()],
-            &temp_out,
-            &["protos/invalid"],
-        )
-        .and_then(|c| c.compile());
+        let piecemeal_result = ConfigBuilder::new()
+            .input_files(&[proto_path.to_str().unwrap()])
+            .output_dir(&temp_out)
+            .include_paths(&["protos/invalid"])
+            .compile();
 
         assert!(
             piecemeal_result.is_err(),
@@ -999,12 +998,11 @@ mod invalid_protos {
         );
 
         // piecemeal currently accepts (known gap)
-        let piecemeal_result = ConfigBuilder::new(
-            &[proto_path.to_str().unwrap()],
-            &temp_out,
-            &["protos/invalid"],
-        )
-        .and_then(|c| c.compile());
+        let piecemeal_result = ConfigBuilder::new()
+            .input_files(&[proto_path.to_str().unwrap()])
+            .output_dir(&temp_out)
+            .include_paths(&["protos/invalid"])
+            .compile();
 
         if piecemeal_result.is_err() {
             // Gap has been fixed!

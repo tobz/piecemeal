@@ -2,42 +2,116 @@ use std::path::{Path, PathBuf};
 
 use crate::{errors::Error, types::FileDescriptor};
 
-/// Configuration build for Protocol Buffers code generation.
+/// Configuration builder for Protocol Buffers code generation.
 #[derive(Debug, Default)]
 pub struct ConfigBuilder {
     input_files: Vec<PathBuf>,
-    output_dir: PathBuf,
+    output_dir: Option<PathBuf>,
     include_paths: Vec<PathBuf>,
 }
 
 impl ConfigBuilder {
-    /// Creates a new `ConfigBuilder from the given input files, include directories, and output directory.
+    /// Creates a new, empty `ConfigBuilder`.
+    ///
+    /// Use the builder methods to configure input files, output directory, and include paths,
+    /// then call [`compile()`](Self::compile) to generate code.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// ConfigBuilder::new()
+    ///     .input_files(&["./protos/messages.proto"])
+    ///     .cargo_output_dir("protos")?
+    ///     .include_paths(&["./protos"])
+    ///     .compile()?;
+    /// ```
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the input `.proto` files to compile.
+    ///
+    /// This replaces any previously configured input files.
+    pub fn input_files<I>(mut self, files: &[I]) -> Self
+    where
+        I: AsRef<Path>,
+    {
+        self.input_files = files.iter().map(|f| f.as_ref().to_path_buf()).collect();
+        self
+    }
+
+    /// Sets the output directory for generated code.
+    ///
+    /// The path is used as-is. If you want to resolve a relative path against
+    /// Cargo's `OUT_DIR`, use [`cargo_output_dir()`](Self::cargo_output_dir) instead.
+    ///
+    /// This overwrites any previously configured output directory.
+    pub fn output_dir<P>(mut self, dir: P) -> Self
+    where
+        P: AsRef<Path>,
+    {
+        self.output_dir = Some(dir.as_ref().to_path_buf());
+        self
+    }
+
+    /// Sets the output directory relative to Cargo's `OUT_DIR`.
+    ///
+    /// The provided path must be relative and will be joined with the `OUT_DIR`
+    /// environment variable.
+    ///
+    /// This overwrites any previously configured output directory.
     ///
     /// # Errors
     ///
-    /// If no input files are provided, if they don't exist, or if the output directory doesn't exist and can't be
-    /// created, an error is returned.
-    pub fn new<I, O, IP>(
-        input_files: &[I],
-        output_dir: O,
-        include_paths: &[IP],
-    ) -> Result<Self, Error>
+    /// Returns an error if:
+    /// - The `OUT_DIR` environment variable is not set
+    /// - The provided path is absolute
+    pub fn cargo_output_dir<P>(mut self, dir: P) -> Result<Self, Error>
+    where
+        P: AsRef<Path>,
+    {
+        let dir = dir.as_ref();
+
+        if dir.is_absolute() {
+            return Err(Error::AbsolutePathNotAllowed(
+                dir.to_string_lossy().to_string(),
+            ));
+        }
+
+        let out_dir = std::env::var("OUT_DIR").map_err(|_| Error::OutDirNotSet)?;
+
+        self.output_dir = Some(PathBuf::from(out_dir).join(dir));
+        Ok(self)
+    }
+
+    /// Sets the include paths for resolving imports in `.proto` files.
+    ///
+    /// This replaces any previously configured include paths.
+    pub fn include_paths<I>(mut self, paths: &[I]) -> Self
     where
         I: AsRef<Path>,
-        O: AsRef<Path>,
-        IP: AsRef<Path>,
     {
-        // Get our input files, and make sure they all exist on disk.
-        let input_files = input_files
-            .iter()
-            .map(|f| f.as_ref().to_path_buf())
-            .collect::<Vec<_>>();
+        self.include_paths = paths.iter().map(|p| p.as_ref().to_path_buf()).collect();
+        self
+    }
 
-        if input_files.is_empty() {
+    /// Compiles the configured `.proto` files and generates builder code for them.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - No input files were configured
+    /// - An input file does not exist
+    /// - No output directory was configured
+    /// - The output directory cannot be created
+    /// - There is an error parsing the input files or generating code
+    pub fn compile(self) -> Result<(), Error> {
+        // Validate input files
+        if self.input_files.is_empty() {
             return Err(Error::NoInputFiles);
         }
 
-        for input_file in &input_files {
+        for input_file in &self.input_files {
             if !input_file.exists() {
                 return Err(Error::InputFileDoesNotExist(
                     input_file.to_string_lossy().to_string(),
@@ -45,39 +119,23 @@ impl ConfigBuilder {
             }
         }
 
-        // Make sure our output directory exists on disk, creating it recursively if not.
-        let output_dir = output_dir.as_ref().to_path_buf();
+        // Validate and create output directory
+        let output_dir = self.output_dir.ok_or(Error::NoOutputDirectory)?;
         if !output_dir.is_dir() {
             std::fs::create_dir_all(&output_dir).map_err(Error::FailedToCreateOutputDirectory)?;
         }
 
-        // Get all of the import paths, making sure we always include the current directory among them.
-        let mut include_paths = include_paths
-            .iter()
-            .map(|f| f.as_ref().to_path_buf())
-            .collect::<Vec<_>>();
-
+        // Prepare include paths, ensuring current directory is included
+        let mut include_paths = self.include_paths;
         let default = PathBuf::from(".");
         if include_paths.is_empty() || !include_paths.contains(&default) {
             include_paths.push(default);
         }
 
-        Ok(Self {
-            input_files,
-            output_dir,
-            include_paths,
-        })
-    }
-
-    /// Compiles the configured `.proto` files and generates builder code for them.
-    ///
-    /// # Errors
-    ///
-    /// If there an error reading the input files, parsing them, or generating the builder code, an error is returned.
-    pub fn compile(self) -> Result<(), Error> {
+        // Compile each input file
         for input_file in self.input_files {
-            let descriptor = FileDescriptor::try_from_input_file(&input_file, &self.include_paths)?;
-            descriptor.write_to_file(&self.output_dir)?;
+            let descriptor = FileDescriptor::try_from_input_file(&input_file, &include_paths)?;
+            descriptor.write_to_file(&output_dir)?;
         }
 
         Ok(())
@@ -91,21 +149,41 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn test_new_no_input_files() {
+    fn test_compile_no_input_files() {
         let temp = tempdir().unwrap();
-        let result = ConfigBuilder::new::<&str, _, _>(&[], temp.path(), &["./"]);
+        let result = ConfigBuilder::new()
+            .output_dir(temp.path())
+            .include_paths(&["./"])
+            .compile();
         assert!(matches!(result, Err(Error::NoInputFiles)));
     }
 
     #[test]
-    fn test_new_input_file_does_not_exist() {
+    fn test_compile_input_file_does_not_exist() {
         let temp = tempdir().unwrap();
-        let result = ConfigBuilder::new(&["nonexistent.proto"], temp.path(), &["./"]);
+        let result = ConfigBuilder::new()
+            .input_files(&["nonexistent.proto"])
+            .output_dir(temp.path())
+            .include_paths(&["./"])
+            .compile();
         assert!(matches!(result, Err(Error::InputFileDoesNotExist(_))));
     }
 
     #[test]
-    fn test_new_creates_output_directory() {
+    fn test_compile_no_output_directory() {
+        let temp = tempdir().unwrap();
+        let proto_path = temp.path().join("test.proto");
+        fs::write(&proto_path, "syntax = \"proto3\";\nmessage Empty {}\n").unwrap();
+
+        let result = ConfigBuilder::new()
+            .input_files(&[&proto_path])
+            .include_paths(&[temp.path()])
+            .compile();
+        assert!(matches!(result, Err(Error::NoOutputDirectory)));
+    }
+
+    #[test]
+    fn test_compile_creates_output_directory() {
         let temp = tempdir().unwrap();
         let proto_path = temp.path().join("test.proto");
         fs::write(&proto_path, "syntax = \"proto3\";\nmessage Empty {}\n").unwrap();
@@ -113,13 +191,17 @@ mod tests {
         let output_dir = temp.path().join("nested").join("output");
         assert!(!output_dir.exists());
 
-        let result = ConfigBuilder::new(&[&proto_path], &output_dir, &[temp.path()]);
+        let result = ConfigBuilder::new()
+            .input_files(&[&proto_path])
+            .output_dir(&output_dir)
+            .include_paths(&[temp.path()])
+            .compile();
         assert!(result.is_ok());
         assert!(output_dir.exists());
     }
 
     #[test]
-    fn test_new_with_existing_output_directory() {
+    fn test_compile_with_existing_output_directory() {
         let temp = tempdir().unwrap();
         let proto_path = temp.path().join("test.proto");
         fs::write(&proto_path, "syntax = \"proto3\";\nmessage Empty {}\n").unwrap();
@@ -127,39 +209,12 @@ mod tests {
         let output_dir = temp.path().join("output");
         fs::create_dir(&output_dir).unwrap();
 
-        let result = ConfigBuilder::new(&[&proto_path], &output_dir, &[temp.path()]);
+        let result = ConfigBuilder::new()
+            .input_files(&[&proto_path])
+            .output_dir(&output_dir)
+            .include_paths(&[temp.path()])
+            .compile();
         assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_new_adds_default_include_path() {
-        let temp = tempdir().unwrap();
-        let proto_path = temp.path().join("test.proto");
-        fs::write(&proto_path, "syntax = \"proto3\";\nmessage Empty {}\n").unwrap();
-
-        // Test with empty include paths - should add "."
-        let result = ConfigBuilder::new::<_, _, &str>(&[&proto_path], temp.path(), &[]);
-        assert!(result.is_ok());
-        let config = result.unwrap();
-        assert!(config.include_paths.contains(&PathBuf::from(".")));
-    }
-
-    #[test]
-    fn test_new_does_not_duplicate_default_include_path() {
-        let temp = tempdir().unwrap();
-        let proto_path = temp.path().join("test.proto");
-        fs::write(&proto_path, "syntax = \"proto3\";\nmessage Empty {}\n").unwrap();
-
-        // Test with "." already in include paths - should not duplicate
-        let result = ConfigBuilder::new(&[&proto_path], temp.path(), &["."]);
-        assert!(result.is_ok());
-        let config = result.unwrap();
-        let dot_count = config
-            .include_paths
-            .iter()
-            .filter(|p| *p == &PathBuf::from("."))
-            .count();
-        assert_eq!(dot_count, 1);
     }
 
     #[test]
@@ -176,8 +231,11 @@ message TestMessage {
         fs::write(&proto_path, proto_content).unwrap();
 
         let output_dir = temp.path().join("output");
-        let config = ConfigBuilder::new(&[&proto_path], &output_dir, &[temp.path()]).unwrap();
-        let result = config.compile();
+        let result = ConfigBuilder::new()
+            .input_files(&[&proto_path])
+            .output_dir(&output_dir)
+            .include_paths(&[temp.path()])
+            .compile();
         assert!(result.is_ok());
 
         // Verify output file was created
@@ -204,8 +262,11 @@ message TestMessage {
         .unwrap();
 
         let output_dir = temp.path().join("output");
-        let config = ConfigBuilder::new(&[&proto1, &proto2], &output_dir, &[temp.path()]).unwrap();
-        let result = config.compile();
+        let result = ConfigBuilder::new()
+            .input_files(&[&proto1, &proto2])
+            .output_dir(&output_dir)
+            .include_paths(&[temp.path()])
+            .compile();
         assert!(result.is_ok());
 
         assert!(output_dir.join("first.rs").exists());

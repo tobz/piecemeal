@@ -38,6 +38,15 @@ pub enum Error {
 
     /// An invalid enum variant was marked as the default value.
     InvalidDefaultEnum(String),
+
+    /// The `OUT_DIR` environment variable is not set.
+    OutDirNotSet,
+
+    /// An absolute path was provided where a relative path was required.
+    AbsolutePathNotAllowed(String),
+
+    /// No output directory was configured.
+    NoOutputDirectory,
 }
 
 impl From<io::Error> for Error {
@@ -100,6 +109,19 @@ impl std::fmt::Display for Error {
                     "enum field cannot be set to '{}': variant does not exist",
                     en
                 )
+            }
+            Self::OutDirNotSet => {
+                write!(f, "OUT_DIR environment variable is not set")
+            }
+            Self::AbsolutePathNotAllowed(path) => {
+                write!(
+                    f,
+                    "absolute path '{}' not allowed; a relative path is required",
+                    path
+                )
+            }
+            Self::NoOutputDirectory => {
+                write!(f, "no output directory was configured")
             }
         }
     }

@@ -14,3 +14,19 @@ tracing = { workspace = true }
 [dev-dependencies]
 walkdir = { version = "2", default-features = false }
 tempfile = "3"
+
+[[test]]
+name = "cargo_output_dir_with_out_dir_set"
+harness = false
+
+[[test]]
+name = "cargo_output_dir_without_out_dir_set"
+harness = false
+
+[[test]]
+name = "cargo_output_dir_with_absolute_path"
+harness = false
+
+[[test]]
+name = "cargo_output_dir_overwrites"
+harness = false

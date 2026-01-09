@@ -87,10 +87,10 @@ fn main() {
         .map(|p| p.to_str().expect("invalid path"))
         .collect();
 
-    ConfigBuilder::new(&proto_paths[..], &piecemeal_out, &["./protos"])
-        .unwrap_or_else(|e| {
-            panic!("Failed to create piecemeal-build config: {}", e);
-        })
+    ConfigBuilder::new()
+        .input_files(&proto_paths[..])
+        .output_dir(&piecemeal_out)
+        .include_paths(&["./protos"])
         .compile()
         .unwrap_or_else(|e| {
             panic!("Failed to compile piecemeal code: {}", e);
