@@ -1133,6 +1133,21 @@ impl FileDescriptor {
         input_file_path: &Path,
         import_search_paths: &[PathBuf],
     ) -> Result<FileDescriptor, Error> {
+        Self::try_from_input_file_internal(input_file_path, import_search_paths, false)
+    }
+
+    /// Internal implementation that supports skipping type resolution for imported files.
+    ///
+    /// When `is_import` is true, we skip `resolve_types()` and `sanity_checks()` because:
+    /// - Imported files will have their messages merged into the importing file
+    /// - Type resolution assigns indices based on message position in the file
+    /// - After merging, those indices would be stale (pointing to wrong messages)
+    /// - The importing file will run resolve_types() on the combined message list
+    fn try_from_input_file_internal(
+        input_file_path: &Path,
+        import_search_paths: &[PathBuf],
+        is_import: bool,
+    ) -> Result<FileDescriptor, Error> {
         // Read and parse the file, checking for any trailing data that the parser wasn't able to account for.
         let input_file = std::fs::read_to_string(input_file_path)?;
         let (trailing_data, mut descriptor) =
@@ -1176,11 +1191,14 @@ impl FileDescriptor {
             descriptor.package.clone()
         };
 
-        descriptor.fetch_imports(input_file_path, import_search_paths)?;
+        descriptor.fetch_imports_internal(input_file_path, import_search_paths)?;
 
-        // Fix up the descriptor, performing a number of operations to get it into a consistent state that we can work with.
-        descriptor.resolve_types()?;
-        descriptor.sanity_checks()?;
+        // Fix up the descriptor, performing a number of operations to get it into a consistent state.
+        // For imported files, skip resolve_types and sanity_checks - they'll run on the combined file.
+        if !is_import {
+            descriptor.resolve_types()?;
+            descriptor.sanity_checks()?;
+        }
         descriptor.set_defaults()?;
         descriptor.sanitize_names();
 
@@ -1245,8 +1263,12 @@ impl FileDescriptor {
         Ok(())
     }
 
-    /// Get messages and enums from imports
-    fn fetch_imports(
+    /// Get messages and enums from imports.
+    ///
+    /// This calls the internal file processing function with `is_import: true` to skip
+    /// type resolution on imported files. Type resolution will happen once all imports
+    /// are merged, ensuring indices are correct for the combined message list.
+    fn fetch_imports_internal(
         &mut self,
         input_file: &Path,
         import_search_paths: &[PathBuf],
@@ -1289,7 +1311,12 @@ impl FileDescriptor {
                 )));
             }
             let proto_file = matching_file.unwrap();
-            let mut f = FileDescriptor::try_from_input_file(&proto_file, import_search_paths)?;
+            // Use is_import: true to skip resolve_types/sanity_checks on imported files
+            let mut f = FileDescriptor::try_from_input_file_internal(
+                &proto_file,
+                import_search_paths,
+                true,
+            )?;
 
             // if the proto has a package then the names will be prefixed
             let package = f.package.clone();
