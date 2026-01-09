@@ -198,11 +198,24 @@ fn reserved_names(input: &str) -> IResult<&str, Vec<String>> {
     )(input)
 }
 
+/// Parses a field option key name, which can be:
+/// - A simple identifier: `packed`
+/// - A qualified name: `json_name`
+/// - A parenthesized extension: `(gogoproto.nullable)`
+fn option_key(input: &str) -> IResult<&str, &str> {
+    alt((
+        // Parenthesized extension option: (package.option_name)
+        recognize(delimited(tag("("), take_until(")"), tag(")"))),
+        // Simple or qualified name
+        recognize(qualifiable_name),
+    ))(input)
+}
+
 fn key_val(input: &str) -> IResult<&str, (&str, &str)> {
     delimited(
         pair(tag("["), many0(br)),
         separated_pair(
-            word_ref,
+            option_key,
             delimited(many0(br), tag("="), many0(br)),
             map(take_until("]"), |v: &str| v.trim()),
         ),
@@ -549,6 +562,27 @@ fn option_ignore(input: &str) -> IResult<&str, ()> {
     )(input)
 }
 
+/// Parses and ignores an `extend` block, e.g.:
+/// ```protobuf
+/// extend google.protobuf.FieldOptions {
+///     optional bool nullable = 65001;
+/// }
+/// ```
+fn extend_block(input: &str) -> IResult<&str, ()> {
+    value(
+        (),
+        tuple((
+            tag("extend"),
+            many1(br),
+            qualifiable_name,
+            many0(br),
+            tag("{"),
+            take_until("}"),
+            tag("}"),
+        )),
+    )(input)
+}
+
 fn scan_syntax(input: &str) -> IResult<&str, Syntax> {
     map_res(separated_list0(many0(anychar), syntax), |v| {
         Ok::<Syntax, &str>(if v.is_empty() { Syntax::Proto2 } else { v[0] })
@@ -567,6 +601,7 @@ pub fn parse_file_descriptor<'a>(input: &'a str) -> IResult<&'a str, FileDescrip
                 map(message(got_syntax), Event::Message),
                 map(enumerator, Event::Enum),
                 value(Event::Ignore, rpc_service),
+                value(Event::Ignore, extend_block),
                 value(Event::Ignore, option_ignore),
                 value(Event::Ignore, br),
             ))),
@@ -1568,5 +1603,74 @@ mod test {
         assert!(result.is_ok());
         let (_, msg) = result.unwrap();
         assert_eq!(msg.fields.len(), 2);
+    }
+
+    #[test]
+    fn test_option_key_simple() {
+        // Simple identifier
+        let (rem, key) = option_key("packed").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(key, "packed");
+    }
+
+    #[test]
+    fn test_option_key_qualified() {
+        // Qualified name (dotted)
+        let (rem, key) = option_key("json_name").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(key, "json_name");
+    }
+
+    #[test]
+    fn test_option_key_extension() {
+        // Parenthesized extension option
+        let (rem, key) = option_key("(gogoproto.nullable)").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(key, "(gogoproto.nullable)");
+
+        // Another extension format
+        let (rem, key) = option_key("(custom.option)=").unwrap();
+        assert_eq!(rem, "=");
+        assert_eq!(key, "(custom.option)");
+    }
+
+    #[test]
+    fn test_key_val_simple() {
+        let (rem, (key, val)) = key_val("[packed=true]").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(key, "packed");
+        assert_eq!(val, "true");
+    }
+
+    #[test]
+    fn test_key_val_extension() {
+        let (rem, (key, val)) = key_val("[(gogoproto.nullable) = false]").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(key, "(gogoproto.nullable)");
+        assert_eq!(val, "false");
+    }
+
+    #[test]
+    fn test_field_with_extension_option() {
+        let msg = r#"message Test {
+            repeated int32 values = 1 [(gogoproto.nullable) = false];
+        }"#;
+        let result = message(Syntax::Proto3)(msg);
+        assert!(result.is_ok());
+        let (_, msg) = result.unwrap();
+        assert_eq!(msg.fields.len(), 1);
+        assert_eq!(msg.fields[0].name, "values");
+    }
+
+    #[test]
+    fn test_field_with_multiple_options() {
+        let msg = r#"message Test {
+            repeated int32 values = 1 [packed=true][(gogoproto.nullable) = false];
+        }"#;
+        let result = message(Syntax::Proto3)(msg);
+        assert!(result.is_ok());
+        let (_, msg) = result.unwrap();
+        assert_eq!(msg.fields.len(), 1);
+        assert_eq!(msg.fields[0].packed, Some(true));
     }
 }

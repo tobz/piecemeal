@@ -1,0 +1,10 @@
+// Stub file for google.protobuf.descriptor.
+// Based on https://github.com/protocolbuffers/protobuf/blob/main/src/google/protobuf/descriptor.proto
+syntax = "proto2";
+
+package google.protobuf;
+
+message FieldOptions {
+    optional bool deprecated = 3;
+    extensions 1000 to max;
+}

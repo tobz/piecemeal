@@ -1,0 +1,16 @@
+// Stub file for gogoproto extensions.
+// Based on https://github.com/gogo/protobuf/blob/master/gogoproto/gogo.proto
+syntax = "proto2";
+
+package gogoproto;
+
+import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.FieldOptions {
+    optional bool nullable = 65001;
+}
+
+// Placeholder message for piecemeal (which requires at least one message per file)
+message GoGoProtoStub {
+    optional bool placeholder = 1;
+}

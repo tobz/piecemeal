@@ -1248,24 +1248,29 @@ impl FileDescriptor {
         }
 
         for import_path in &self.import_paths {
-            // this is the same logic as the C preprocessor;
-            // if the include path item is absolute, then append the filename,
-            // otherwise it is always relative to the file.
+            // Search for the import in each search path, then try relative to
+            // the importing file's directory.
             let mut matching_file = None;
+
+            // First, try each search path directly (for imports like "google/protobuf/descriptor.proto")
             for import_search_path in import_search_paths {
-                let candidate = if import_search_path.is_absolute() {
-                    import_search_path.join(import_path)
-                } else {
-                    input_file.parent().map_or_else(
-                        || import_search_path.join(import_path),
-                        |p| p.join(import_search_path).join(import_path),
-                    )
-                };
+                let candidate = import_search_path.join(import_path);
                 if candidate.exists() {
                     matching_file = Some(candidate);
                     break;
                 }
             }
+
+            // If not found, try relative to the importing file's directory (for imports like "base_types.proto")
+            if matching_file.is_none()
+                && let Some(parent) = input_file.parent()
+            {
+                let candidate = parent.join(import_path);
+                if candidate.exists() {
+                    matching_file = Some(candidate);
+                }
+            }
+
             if matching_file.is_none() {
                 return Err(Error::InvalidImport(format!(
                     "file '{}' not found on import path",
