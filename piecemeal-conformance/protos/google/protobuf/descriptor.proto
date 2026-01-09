@@ -1,10 +1,30 @@
 // Stub file for google.protobuf.descriptor.
 // Based on https://github.com/protocolbuffers/protobuf/blob/main/src/google/protobuf/descriptor.proto
+// Contains only the fields needed for gogo.proto and other common imports.
 syntax = "proto2";
 
 package google.protobuf;
 
+message FileOptions {
+    optional string java_package = 1;
+    optional string java_outer_classname = 8;
+    optional string go_package = 11;
+    extensions 1000 to max;
+}
+
+message MessageOptions {
+    extensions 1000 to max;
+}
+
 message FieldOptions {
     optional bool deprecated = 3;
+    extensions 1000 to max;
+}
+
+message EnumOptions {
+    extensions 1000 to max;
+}
+
+message EnumValueOptions {
     extensions 1000 to max;
 }

@@ -52,6 +52,7 @@ enum Event {
     Package(String),
     Message(Message),
     Enum(Enumeration),
+    Extend,
     Ignore,
 }
 
@@ -601,7 +602,7 @@ pub fn parse_file_descriptor<'a>(input: &'a str) -> IResult<&'a str, FileDescrip
                 map(message(got_syntax), Event::Message),
                 map(enumerator, Event::Enum),
                 value(Event::Ignore, rpc_service),
-                value(Event::Ignore, extend_block),
+                value(Event::Extend, extend_block),
                 value(Event::Ignore, option_ignore),
                 value(Event::Ignore, br),
             ))),
@@ -614,6 +615,7 @@ pub fn parse_file_descriptor<'a>(input: &'a str) -> IResult<&'a str, FileDescrip
                         Event::Package(p) => desc.package = p,
                         Event::Message(m) => desc.messages.push(m),
                         Event::Enum(e) => desc.enums.push(e),
+                        Event::Extend => desc.has_extends = true,
                         Event::Ignore => (),
                     }
                 }

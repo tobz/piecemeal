@@ -1118,6 +1118,9 @@ pub(crate) struct FileDescriptor {
     pub messages: Vec<Message>,
     pub enums: Vec<Enumeration>,
     pub module: String,
+    /// Whether this file contains any `extend` blocks.
+    /// Files with only extend blocks are valid but generate no code.
+    pub has_extends: bool,
 }
 
 impl FileDescriptor {
@@ -1143,10 +1146,12 @@ impl FileDescriptor {
 
         descriptor.input_file = input_file_path.to_path_buf();
 
-        // Sanity check: make sure there's at least one message or enum in the resulting descriptor.
+        // Sanity check: make sure there's at least one message, enum, or extend block in the resulting descriptor.
         //
         // If there isn't, then something likely went wrong during parsing, or we were given a bunk `.proto` file.
-        if descriptor.messages.is_empty() && descriptor.enums.is_empty() {
+        // Files with only extend blocks are valid (they just don't generate any code).
+        if descriptor.messages.is_empty() && descriptor.enums.is_empty() && !descriptor.has_extends
+        {
             return Err(Error::EmptyRead);
         }
 
@@ -1188,6 +1193,12 @@ impl FileDescriptor {
     ///
     /// If there is an issue during code generation, or with writing the output file, an error is returned.
     pub fn write_to_file(self, output_dir: &Path) -> Result<(), Error> {
+        // Files with only extend blocks have no messages or enums to generate code for.
+        // Skip writing an output file for them.
+        if self.messages.is_empty() && self.enums.is_empty() {
+            return Ok(());
+        }
+
         let (prefix, file_package) = split_package(&self.package);
 
         let mut file_stem = if file_package.is_empty() {
