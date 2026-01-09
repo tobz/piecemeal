@@ -1355,6 +1355,7 @@ impl FileDescriptor {
         // Set specific default behavior for messages/fields if we're using Protocol Buffers v3 syntax.
         if let Syntax::Proto3 = self.syntax {
             let mut nested_messages = VecDeque::new();
+            let mut visited = std::collections::HashSet::new();
 
             // Go through the top-level first, collecting the first line of any nested messages within those. We'll go
             // through the nested messages afterwards to fully crawl the file descriptor and ensure all messages have
@@ -1363,18 +1364,22 @@ impl FileDescriptor {
                 m.set_repeated_as_packed();
 
                 for f in m.all_fields() {
-                    if let Some(m_idx) = f.typ.message() {
+                    if let Some(m_idx) = f.typ.message()
+                        && visited.insert(m_idx.clone())
+                    {
                         nested_messages.push_back(m_idx.clone());
                     }
                 }
             }
 
-            while let Some(m) = nested_messages.pop_front() {
-                let m = m.get_message_mut(self);
+            while let Some(m_idx) = nested_messages.pop_front() {
+                let m = m_idx.get_message_mut(self);
                 m.set_repeated_as_packed();
 
                 for f in m.all_fields() {
-                    if let Some(m_idx) = f.typ.message() {
+                    if let Some(m_idx) = f.typ.message()
+                        && visited.insert(m_idx.clone())
+                    {
                         nested_messages.push_back(m_idx.clone());
                     }
                 }
@@ -3643,5 +3648,49 @@ mod tests {
         });
         let result = enum_type.write_rust_type(&desc);
         assert_eq!(result, "test::Status");
+    }
+
+    #[test]
+    fn test_try_from_input_file_descriptor_proto() {
+        // Test the full compilation path on descriptor.proto
+        let result = FileDescriptor::try_from_input_file(
+            Path::new("../piecemeal-conformance/protos/google/protobuf/descriptor.proto"),
+            &[PathBuf::from("../piecemeal-conformance/protos")],
+        );
+        assert!(
+            result.is_ok(),
+            "Failed to compile descriptor.proto: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_try_from_input_file_gogo_proto() {
+        // Test gogo.proto which imports descriptor.proto
+        let result = FileDescriptor::try_from_input_file(
+            Path::new(
+                "../piecemeal-conformance/protos/github.com/gogo/protobuf/gogoproto/gogo.proto",
+            ),
+            &[PathBuf::from("../piecemeal-conformance/protos")],
+        );
+        assert!(
+            result.is_ok(),
+            "Failed to compile gogo.proto: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_try_from_input_file_agent_payload_proto() {
+        // Test agent_payload.proto which imports gogo.proto
+        let result = FileDescriptor::try_from_input_file(
+            Path::new("../piecemeal-conformance/protos/real_world/agent_payload.proto"),
+            &[PathBuf::from("../piecemeal-conformance/protos")],
+        );
+        assert!(
+            result.is_ok(),
+            "Failed to compile agent_payload.proto: {:?}",
+            result.err()
+        );
     }
 }

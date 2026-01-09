@@ -556,10 +556,25 @@ fn enumerator(input: &str) -> IResult<&str, Enumeration> {
     )(input)
 }
 
+/// Parses an option value, handling quoted strings (which may contain semicolons)
+/// and unquoted values (identifiers, numbers, enum values).
+fn option_value(input: &str) -> IResult<&str, ()> {
+    use nom::bytes::complete::take_while1;
+    value(
+        (),
+        many1(alt((
+            // Quoted string - consume everything between quotes (may contain semicolons)
+            recognize(delimited(tag("\""), take_until("\""), tag("\""))),
+            // Any run of characters that aren't semicolons or quotes
+            recognize(take_while1(|c| c != ';' && c != '"')),
+        ))),
+    )(input)
+}
+
 fn option_ignore(input: &str) -> IResult<&str, ()> {
     value(
         (),
-        delimited(pair(tag("option"), many1(br)), take_until(";"), tag(";")),
+        tuple((tag("option"), many1(br), option_value, tag(";"))),
     )(input)
 }
 
@@ -740,8 +755,63 @@ mod test {
             ::nom::IResult::Ok(_) => (),
             e => panic!("Expecting done {:?}", e),
         }
+
+        // Test option with semicolon inside quoted string
+        let msg3 = r#"option go_package = "github.com/foo/bar;baz";"#;
+
+        match option_ignore(msg3) {
+            ::nom::IResult::Ok((rem, _)) => assert_eq!(rem, "", "expected no trailing data"),
+            e => panic!("Expecting done {:?}", e),
+        }
+
         assert_desc(msg).unwrap();
         assert_desc(msg2).unwrap();
+        assert_desc(msg3).unwrap();
+    }
+
+    #[test]
+    fn test_parse_descriptor_proto() {
+        // Parse the real google descriptor.proto file
+        let content = std::fs::read_to_string(
+            "../piecemeal-conformance/protos/google/protobuf/descriptor.proto",
+        )
+        .unwrap();
+        let result = parse_file_descriptor(&content);
+        assert!(
+            result.is_ok(),
+            "Failed to parse descriptor.proto: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_parse_gogo_proto() {
+        // Parse the gogo.proto file
+        let content = std::fs::read_to_string(
+            "../piecemeal-conformance/protos/github.com/gogo/protobuf/gogoproto/gogo.proto",
+        )
+        .unwrap();
+        let result = parse_file_descriptor(&content);
+        assert!(
+            result.is_ok(),
+            "Failed to parse gogo.proto: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_parse_agent_payload_proto() {
+        // Parse agent_payload.proto
+        let content = std::fs::read_to_string(
+            "../piecemeal-conformance/protos/real_world/agent_payload.proto",
+        )
+        .unwrap();
+        let result = parse_file_descriptor(&content);
+        assert!(
+            result.is_ok(),
+            "Failed to parse agent_payload.proto: {:?}",
+            result.err()
+        );
     }
 
     #[test]
