@@ -2,6 +2,7 @@
 
 use piecemeal_build::ConfigBuilder;
 
+#[test]
 fn main() {
     // SAFETY: This runs in its own process, so modifying env vars is safe.
     unsafe {

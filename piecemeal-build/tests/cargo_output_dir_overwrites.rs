@@ -4,6 +4,7 @@ use piecemeal_build::ConfigBuilder;
 use std::fs;
 use tempfile::tempdir;
 
+#[test]
 fn main() {
     let temp = tempdir().unwrap();
 

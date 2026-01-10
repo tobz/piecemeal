@@ -3,6 +3,7 @@
 use piecemeal_build::ConfigBuilder;
 use tempfile::tempdir;
 
+#[test]
 fn main() {
     let temp = tempdir().unwrap();
 
