@@ -1,6 +1,6 @@
 //! Scratch buffers and writer.
 
-use std::{cmp::Reverse, collections::BinaryHeap, io};
+use std::{cmp::Reverse, collections::BinaryHeap, fmt, io};
 
 use crate::helpers::sizeof_varint;
 
@@ -33,7 +33,7 @@ impl ScratchBuffer for Vec<u8> {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Eq, PartialEq)]
 struct LengthMarker {
     offset: usize,
     len: u64,
@@ -48,6 +48,12 @@ impl PartialOrd for LengthMarker {
 impl Ord for LengthMarker {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.offset.cmp(&other.offset)
+    }
+}
+
+impl fmt::Debug for LengthMarker {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "({}, {})", self.offset, self.len)
     }
 }
 
@@ -193,6 +199,16 @@ impl<B: ScratchBuffer> Writer for ScratchWriter<B> {
 
     fn pb_write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
         self.buffer.pb_write_all(buf)
+    }
+}
+
+impl<B: ScratchBuffer> fmt::Debug for ScratchWriter<B> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ScratchWriter")
+            .field("buffer_len", &self.buffer.as_slice().len())
+            .field("total_len_bytes", &self.total_len_bytes)
+            .field("len_markers", &self.len_markers)
+            .finish()
     }
 }
 
