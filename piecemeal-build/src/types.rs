@@ -466,7 +466,7 @@ impl Message {
 
         if !(self.nested_messages.is_empty() && self.nested_enums.is_empty()) {
             writeln!(w)?;
-            writeln!(w, "pub mod {} {{", pascal_to_snake_case(&self.name))?;
+            writeln!(w, "pub mod {} {{", to_snake_case(&self.name))?;
             writeln!(w)?;
 
             Self::write_common_uses(w, &self.nested_messages, crate_path)?;
@@ -921,14 +921,14 @@ impl Message {
             self.module = module.to_string();
             (
                 self.name.clone(),
-                format!("{}.{}", module, pascal_to_snake_case(&self.name)),
+                format!("{}.{}", module, to_snake_case(&self.name)),
             )
         } else {
             self.package = package.to_string();
             self.module = module.to_string();
             (
                 format!("{}.{}", package, self.name),
-                format!("{}.{}", module, pascal_to_snake_case(&self.name)),
+                format!("{}.{}", module, to_snake_case(&self.name)),
             )
         };
 
@@ -956,11 +956,14 @@ impl Message {
         sanitize_keyword(&mut self.name);
         sanitize_keyword(&mut self.package);
         for f in self.fields.iter_mut() {
+            f.name = to_snake_case(&f.name);
             sanitize_keyword(&mut f.name);
         }
         for o in &mut self.oneofs {
+            o.name = to_snake_case(&o.name);
             sanitize_keyword(&mut o.name);
             for f in o.fields.iter_mut() {
+                f.name = to_snake_case(&f.name);
                 sanitize_keyword(&mut f.name);
             }
         }
@@ -1138,6 +1141,7 @@ impl FileDescriptor {
     /// # Errors
     ///
     /// If there is an issue while parsing the file (I/O error, invalid data, etc), an error is returned.
+    #[cfg(test)]
     pub fn try_from_input_file(
         input_file_path: &Path,
         import_search_paths: &[PathBuf],
@@ -1706,12 +1710,23 @@ fn update_mod_file(path: &Path) -> Result<(), Error> {
     Ok(())
 }
 
-/// Converts a string in `PascalCase` to `snake_case`.
-pub(crate) fn pascal_to_snake_case(s: &str) -> String {
+/// Converts a string from any common casing (PascalCase, camelCase, SCREAMING_SNAKE_CASE, etc.)
+/// to `snake_case`.
+pub(crate) fn to_snake_case(s: &str) -> String {
     let mut result = String::new();
-    for (i, c) in s.chars().enumerate() {
+    let chars: Vec<char> = s.chars().collect();
+    for (i, &c) in chars.iter().enumerate() {
+        if c == '_' {
+            if !result.is_empty() && !result.ends_with('_') {
+                result.push('_');
+            }
+            continue;
+        }
         if c.is_uppercase() {
-            if i > 0 {
+            let prev_lower =
+                i > 0 && (chars[i - 1].is_lowercase() || chars[i - 1].is_ascii_digit());
+            let next_lower = i + 1 < chars.len() && chars[i + 1].is_lowercase();
+            if prev_lower || (next_lower && !result.is_empty() && !result.ends_with('_')) {
                 result.push('_');
             }
             result.push(c.to_ascii_lowercase());
@@ -1764,14 +1779,28 @@ mod tests {
     // Case conversion tests
     #[test]
     fn test_to_snake_case() {
-        assert_eq!(pascal_to_snake_case("PascalCase"), "pascal_case");
-        assert_eq!(pascal_to_snake_case("SimpleTest"), "simple_test");
-        assert_eq!(pascal_to_snake_case("A"), "a");
-        assert_eq!(pascal_to_snake_case("AB"), "a_b");
-        assert_eq!(pascal_to_snake_case("ABCDef"), "a_b_c_def");
-        assert_eq!(pascal_to_snake_case("already_snake"), "already_snake");
-        assert_eq!(pascal_to_snake_case(""), "");
-        assert_eq!(pascal_to_snake_case("lowercase"), "lowercase");
+        // PascalCase
+        assert_eq!(to_snake_case("PascalCase"), "pascal_case");
+        assert_eq!(to_snake_case("SimpleTest"), "simple_test");
+        // camelCase
+        assert_eq!(to_snake_case("camelCase"), "camel_case");
+        assert_eq!(to_snake_case("myFieldName"), "my_field_name");
+        // snake_case passthrough
+        assert_eq!(to_snake_case("already_snake"), "already_snake");
+        assert_eq!(to_snake_case("lowercase"), "lowercase");
+        // SCREAMING_SNAKE_CASE
+        assert_eq!(to_snake_case("SCREAMING_SNAKE"), "screaming_snake");
+        assert_eq!(to_snake_case("ALL_CAPS"), "all_caps");
+        // Acronyms
+        assert_eq!(to_snake_case("HTTPServer"), "http_server");
+        assert_eq!(to_snake_case("getHTTPSResponse"), "get_https_response");
+        assert_eq!(to_snake_case("ABCDef"), "abc_def");
+        // Mixed
+        assert_eq!(to_snake_case("MixedCamel_Snake"), "mixed_camel_snake");
+        // Edge cases
+        assert_eq!(to_snake_case("A"), "a");
+        assert_eq!(to_snake_case("AB"), "ab");
+        assert_eq!(to_snake_case(""), "");
     }
 
     #[test]
@@ -2998,6 +3027,60 @@ mod tests {
         assert_eq!(msg.oneofs[0].fields[0].name, "struct_");
         assert_eq!(msg.nested_messages[0].name, "mod_");
         assert_eq!(msg.nested_enums[0].name, "crate_");
+    }
+
+    #[test]
+    fn test_sanitize_names_normalizes_field_casing() {
+        let mut msg = Message {
+            name: "MyMessage".to_string(),
+            fields: vec![
+                Field {
+                    name: "camelCase".to_string(),
+                    number: 1,
+                    typ: FieldType::Int32,
+                    frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+                    default: None,
+                    packed: None,
+                },
+                Field {
+                    name: "PascalCase".to_string(),
+                    number: 2,
+                    typ: FieldType::String,
+                    frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+                    default: None,
+                    packed: None,
+                },
+                Field {
+                    name: "already_snake".to_string(),
+                    number: 3,
+                    typ: FieldType::Bool,
+                    frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+                    default: None,
+                    packed: None,
+                },
+            ],
+            oneofs: vec![OneOf {
+                name: "myChoice".to_string(),
+                fields: vec![Field {
+                    name: "innerCamel".to_string(),
+                    number: 4,
+                    typ: FieldType::Int64,
+                    frequency: Frequency::Proto3Frequency(Proto3Frequency::Default),
+                    default: None,
+                    packed: None,
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        msg.sanitize_names();
+        assert_eq!(msg.fields[0].name, "camel_case");
+        assert_eq!(msg.fields[1].name, "pascal_case");
+        assert_eq!(msg.fields[2].name, "already_snake");
+        assert_eq!(msg.oneofs[0].name, "my_choice");
+        assert_eq!(msg.oneofs[0].fields[0].name, "inner_camel");
+        // Message name should NOT be normalized to snake_case
+        assert_eq!(msg.name, "MyMessage");
     }
 
     #[test]
