@@ -93,6 +93,35 @@ jobs:
             - name: Check formatting
               run: mise run fmt:check
 
+    codegen:
+        name: Codegen
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Install cargo-binstall
+              uses: cargo-bins/cargo-binstall@375d3fe4abf5d50515f5bb8dddf2a6cacfe82eb3
+
+            - name: Install mise
+              uses: jdx/mise-action@v2
+
+            - name: Cache cargo registry
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cargo/registry
+                      ~/.cargo/git
+                      target
+                  key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-cargo-
+
+            - name: Check generated code is up to date
+              run: mise run codegen:check
+
     coverage:
         name: Coverage
         runs-on: ubuntu-latest

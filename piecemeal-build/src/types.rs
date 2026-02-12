@@ -402,7 +402,11 @@ impl Message {
         get_modules(&self.module, self.imported, desc)
     }
 
-    fn write_common_uses<W: Write>(w: &mut W, messages: &[Message]) -> Result<(), Error> {
+    fn write_common_uses<W: Write>(
+        w: &mut W,
+        messages: &[Message],
+        crate_path: &str,
+    ) -> Result<(), Error> {
         // Check if any map has scalar values (uses GenericMapBuilder)
         let has_scalar_value_maps = messages.iter().filter(|m| !m.imported).any(|m| {
             m.all_fields().any(|f| {
@@ -426,11 +430,11 @@ impl Message {
         });
 
         if has_scalar_value_maps {
-            writeln!(w, "use ::piecemeal::GenericMapBuilder;")?;
+            writeln!(w, "use {crate_path}::GenericMapBuilder;")?;
         }
 
         if has_message_value_maps {
-            writeln!(w, "use ::piecemeal::MessageMapBuilder;")?;
+            writeln!(w, "use {crate_path}::MessageMapBuilder;")?;
         }
 
         if messages
@@ -438,13 +442,18 @@ impl Message {
             .filter(|m| !m.imported)
             .any(|m| m.all_fields().any(|f| f.frequency.is_repeated()))
         {
-            writeln!(w, "use ::piecemeal::RepeatedBuilder;")?;
+            writeln!(w, "use {crate_path}::RepeatedBuilder;")?;
         }
 
         Ok(())
     }
 
-    fn write<W: Write>(&self, w: &mut W, desc: &FileDescriptor) -> Result<(), Error> {
+    fn write<W: Write>(
+        &self,
+        w: &mut W,
+        desc: &FileDescriptor,
+        crate_path: &str,
+    ) -> Result<(), Error> {
         println!("Writing message {}{}", self.get_modules(desc), self.name);
         writeln!(w)?;
 
@@ -460,13 +469,13 @@ impl Message {
             writeln!(w, "pub mod {} {{", pascal_to_snake_case(&self.name))?;
             writeln!(w)?;
 
-            Self::write_common_uses(w, &self.nested_messages)?;
+            Self::write_common_uses(w, &self.nested_messages, crate_path)?;
 
             if !self.nested_messages.is_empty() {
                 writeln!(w, "use super::*;")?;
             }
             for m in &self.nested_messages {
-                m.write(w, desc)?;
+                m.write(w, desc, crate_path)?;
             }
             for e in &self.nested_enums {
                 e.write(w)?;
@@ -1210,7 +1219,7 @@ impl FileDescriptor {
     /// # Errors
     ///
     /// If there is an issue during code generation, or with writing the output file, an error is returned.
-    pub fn write_to_file(self, output_dir: &Path) -> Result<(), Error> {
+    pub fn write_to_file(self, output_dir: &Path, crate_path: &str) -> Result<(), Error> {
         // Files with only extend blocks have no messages or enums to generate code for.
         // Skip writing an output file for them.
         if self.messages.is_empty() && self.enums.is_empty() {
@@ -1252,7 +1261,7 @@ impl FileDescriptor {
             .unwrap();
 
         let mut w = BufWriter::new(File::create(&output_file)?);
-        self.write(&mut w, name)?;
+        self.write(&mut w, name, crate_path)?;
         update_mod_file(&output_file)
     }
 
@@ -1522,7 +1531,7 @@ impl FileDescriptor {
         Ok(())
     }
 
-    fn write<W: Write>(&self, w: &mut W, filename: &str) -> Result<(), Error> {
+    fn write<W: Write>(&self, w: &mut W, filename: &str, crate_path: &str) -> Result<(), Error> {
         println!(
             "Found {} messages, and {} enums",
             self.messages.len(),
@@ -1530,10 +1539,10 @@ impl FileDescriptor {
         );
         self.write_headers(w, filename)?;
         self.write_package_start(w)?;
-        self.write_uses(w)?;
+        self.write_uses(w, crate_path)?;
         self.write_imports(w)?;
         self.write_enums(w)?;
-        self.write_messages(w)?;
+        self.write_messages(w, crate_path)?;
         self.write_package_end(w)?;
         Ok(())
     }
@@ -1562,12 +1571,12 @@ impl FileDescriptor {
         Ok(())
     }
 
-    fn write_uses<W: Write>(&self, w: &mut W) -> Result<(), Error> {
-        Message::write_common_uses(w, &self.messages)?;
+    fn write_uses<W: Write>(&self, w: &mut W, crate_path: &str) -> Result<(), Error> {
+        Message::write_common_uses(w, &self.messages, crate_path)?;
 
         writeln!(
             w,
-            "use ::piecemeal::{{helpers::*, types::{{protobuf::*, MapKey, MessageBuilderBase, MessageBuilder, WireType}}, ScratchBuffer, ScratchWriter, Writer}};"
+            "use {crate_path}::{{helpers::*, types::{{protobuf::*, MapKey, MessageBuilderBase, MessageBuilder, WireType}}, ScratchBuffer, ScratchWriter, Writer}};"
         )?;
         Ok(())
     }
@@ -1608,9 +1617,9 @@ impl FileDescriptor {
         Ok(())
     }
 
-    fn write_messages<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+    fn write_messages<W: Write>(&self, w: &mut W, crate_path: &str) -> Result<(), Error> {
         for m in self.messages.iter().filter(|m| !m.imported) {
-            m.write(w, self)?;
+            m.write(w, self, crate_path)?;
         }
         Ok(())
     }
@@ -2541,7 +2550,7 @@ mod tests {
             )],
             ..Default::default()
         }];
-        Message::write_common_uses(&mut buf, &messages).unwrap();
+        Message::write_common_uses(&mut buf, &messages, "::piecemeal").unwrap();
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("use ::piecemeal::GenericMapBuilder;"));
         assert!(!output.contains("MessageMapBuilder"));
@@ -2566,7 +2575,7 @@ mod tests {
             }],
             ..Default::default()
         }];
-        Message::write_common_uses(&mut buf, &messages).unwrap();
+        Message::write_common_uses(&mut buf, &messages, "::piecemeal").unwrap();
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("use ::piecemeal::MessageMapBuilder;"));
     }
@@ -2580,7 +2589,7 @@ mod tests {
             fields: vec![create_repeated_field("items", 1, FieldType::Int32)],
             ..Default::default()
         }];
-        Message::write_common_uses(&mut buf, &messages).unwrap();
+        Message::write_common_uses(&mut buf, &messages, "::piecemeal").unwrap();
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("use ::piecemeal::RepeatedBuilder;"));
     }
@@ -2594,7 +2603,7 @@ mod tests {
             fields: vec![create_repeated_field("items", 1, FieldType::Int32)],
             ..Default::default()
         }];
-        Message::write_common_uses(&mut buf, &messages).unwrap();
+        Message::write_common_uses(&mut buf, &messages, "::piecemeal").unwrap();
         let output = String::from_utf8(buf).unwrap();
         // Should not include any imports since message is imported
         assert!(!output.contains("RepeatedBuilder"));
@@ -2609,12 +2618,27 @@ mod tests {
             fields: vec![create_simple_field("name", 1, FieldType::String)],
             ..Default::default()
         }];
-        Message::write_common_uses(&mut buf, &messages).unwrap();
+        Message::write_common_uses(&mut buf, &messages, "::piecemeal").unwrap();
         let output = String::from_utf8(buf).unwrap();
         // No maps or repeated fields, so no extra imports
         assert!(!output.contains("GenericMapBuilder"));
         assert!(!output.contains("MessageMapBuilder"));
         assert!(!output.contains("RepeatedBuilder"));
+    }
+
+    #[test]
+    fn test_write_common_uses_custom_crate_path() {
+        let mut buf = Vec::new();
+        let messages = vec![Message {
+            name: "Test".to_string(),
+            imported: false,
+            fields: vec![create_repeated_field("items", 1, FieldType::Int32)],
+            ..Default::default()
+        }];
+        Message::write_common_uses(&mut buf, &messages, "crate").unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("use crate::RepeatedBuilder;"));
+        assert!(!output.contains("::piecemeal"));
     }
 
     // ============ TYPE RESOLUTION TESTS ============
@@ -3494,7 +3518,7 @@ mod tests {
             ..Default::default()
         };
         let mut output = std::io::Cursor::new(Vec::new());
-        msg.write(&mut output, &desc).unwrap();
+        msg.write(&mut output, &desc, "::piecemeal").unwrap();
         let generated = String::from_utf8(output.into_inner()).unwrap();
         // Check that nested module is created
         assert!(generated.contains("pub mod outer {"));
@@ -3517,7 +3541,7 @@ mod tests {
             ..Default::default()
         };
         let mut output = std::io::Cursor::new(Vec::new());
-        msg.write(&mut output, &desc).unwrap();
+        msg.write(&mut output, &desc, "::piecemeal").unwrap();
         let generated = String::from_utf8(output.into_inner()).unwrap();
         // Check that nested module is created for enums
         assert!(generated.contains("pub mod container {"));
@@ -3540,7 +3564,7 @@ mod tests {
             ..Default::default()
         };
         let mut output = std::io::Cursor::new(Vec::new());
-        msg.write(&mut output, &desc).unwrap();
+        msg.write(&mut output, &desc, "::piecemeal").unwrap();
         let generated = String::from_utf8(output.into_inner()).unwrap();
         // Check that oneof builder is generated
         assert!(generated.contains("pub struct ChoiceOneOfBuilder"));

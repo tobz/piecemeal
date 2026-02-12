@@ -35,3 +35,14 @@ depends = ["fmt:check", "lint", "test"]
 [tasks.bench]
 description = "Run benchmarks"
 run = "cargo bench --package piecemeal"
+
+[tasks.codegen]
+description = "Generate code from proto files"
+run = "cargo run --package piecemeal-build --example generate_docs"
+
+[tasks."codegen:check"]
+description = "Check that generated code is up to date"
+run = """
+cargo run --package piecemeal-build --example generate_docs
+git diff --exit-code piecemeal/src/docs/generated/
+"""

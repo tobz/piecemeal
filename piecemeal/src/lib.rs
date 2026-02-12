@@ -2,6 +2,9 @@
 
 #![deny(missing_docs)]
 
+#[cfg(docsrs)]
+pub mod docs;
+
 pub mod builder;
 pub mod helpers;
 pub mod io;

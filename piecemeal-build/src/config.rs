@@ -3,11 +3,23 @@ use std::path::{Path, PathBuf};
 use crate::{errors::Error, types::FileDescriptor};
 
 /// Configuration builder for Protocol Buffers code generation.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ConfigBuilder {
     input_files: Vec<PathBuf>,
     output_dir: Option<PathBuf>,
     include_paths: Vec<PathBuf>,
+    crate_path: String,
+}
+
+impl Default for ConfigBuilder {
+    fn default() -> Self {
+        Self {
+            input_files: Vec::new(),
+            output_dir: None,
+            include_paths: Vec::new(),
+            crate_path: "::piecemeal".to_string(),
+        }
+    }
 }
 
 impl ConfigBuilder {
@@ -95,6 +107,15 @@ impl ConfigBuilder {
         self
     }
 
+    /// Sets the path used to reference the piecemeal crate in generated code.
+    ///
+    /// Defaults to `::piecemeal`. Use `crate` when generating code that will
+    /// live inside the piecemeal crate itself.
+    pub fn crate_path(mut self, path: &str) -> Self {
+        self.crate_path = path.to_string();
+        self
+    }
+
     /// Compiles the configured `.proto` files and generates builder code for them.
     ///
     /// # Errors
@@ -135,7 +156,7 @@ impl ConfigBuilder {
         // Compile each input file
         for input_file in self.input_files {
             let descriptor = FileDescriptor::try_from_input_file(&input_file, &include_paths)?;
-            descriptor.write_to_file(&output_dir)?;
+            descriptor.write_to_file(&output_dir, &self.crate_path)?;
         }
 
         Ok(())

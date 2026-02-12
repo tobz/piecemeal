@@ -257,7 +257,7 @@ pub enum WireType {
     /// Encodes integers using a variable number of bytes, depending on the magnitude of the value,
     /// consuming between one and ten bytes on the wire.
     ///
-    /// See https://protobuf.dev/programming-guides/encoding/#varints for more information.
+    /// See <https://protobuf.dev/programming-guides/encoding/#varints> for more information.
     Varint,
 
     /// Fixed 32-bit numerical value: (un)signed integer or single-precision floating point number.

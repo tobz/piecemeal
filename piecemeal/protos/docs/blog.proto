@@ -1,0 +1,55 @@
+syntax = "proto3";
+package blog;
+
+// The publication status of a blog post.
+enum PostStatus {
+    DRAFT = 0;
+    PUBLISHED = 1;
+    ARCHIVED = 2;
+}
+
+// An author of blog content.
+message Author {
+    string name = 1;
+    string email = 2;
+}
+
+// A comment on a blog post.
+message Comment {
+    string author_name = 1;
+    string content = 2;
+    int64 timestamp = 3;
+}
+
+// A blog post demonstrating all supported features.
+message Post {
+    // Scalar fields
+    string title = 1;
+    string content = 2;
+
+    // Nested message
+    Author author = 3;
+
+    // Repeated scalar field
+    repeated string tags = 4;
+
+    // Repeated message field
+    repeated Comment comments = 5;
+
+    // Map field (scalar to scalar)
+    map<string, string> metadata = 6;
+
+    // Enum field
+    PostStatus status = 7;
+
+    // Oneof field
+    oneof featured_media {
+        string image_url = 8;
+        string video_url = 9;
+    }
+
+    // Additional scalar types for demonstration
+    int64 view_count = 10;
+    double rating = 11;
+    bool is_featured = 12;
+}
