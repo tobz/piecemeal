@@ -1152,7 +1152,7 @@ impl FileDescriptor {
     /// - Type resolution assigns indices based on message position in the file
     /// - After merging, those indices would be stale (pointing to wrong messages)
     /// - The importing file will run resolve_types() on the combined message list
-    fn try_from_input_file_internal(
+    pub(crate) fn try_from_input_file_internal(
         input_file_path: &Path,
         import_search_paths: &[PathBuf],
         is_import: bool,
@@ -1265,7 +1265,7 @@ impl FileDescriptor {
         update_mod_file(&output_file)
     }
 
-    fn sanity_checks(&self) -> Result<(), Error> {
+    pub(crate) fn sanity_checks(&self) -> Result<(), Error> {
         for m in &self.messages {
             m.sanity_checks(self)?;
         }
@@ -1468,7 +1468,7 @@ impl FileDescriptor {
         (full_msgs, full_enums)
     }
 
-    fn resolve_types(&mut self) -> Result<(), Error> {
+    pub(crate) fn resolve_types(&mut self) -> Result<(), Error> {
         let (full_msgs, full_enums) = self.get_full_names();
 
         fn rec_resolve_types(

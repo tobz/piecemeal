@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::path::{Path, PathBuf};
 
 use crate::{errors::Error, types::FileDescriptor};
@@ -153,9 +155,39 @@ impl ConfigBuilder {
             include_paths.push(default);
         }
 
-        // Compile each input file
+        // Parse all input files without resolving types. Using is_import: true
+        // skips resolve_types and sanity_checks so that MessageOrEnum(String)
+        // references remain unresolved. This lets us merge descriptors that share
+        // a package and then resolve types once against the combined message list.
+        let mut grouped: HashMap<String, FileDescriptor> = HashMap::new();
+        let mut no_package: Vec<FileDescriptor> = Vec::new();
+
         for input_file in self.input_files {
-            let descriptor = FileDescriptor::try_from_input_file(&input_file, &include_paths)?;
+            let descriptor =
+                FileDescriptor::try_from_input_file_internal(&input_file, &include_paths, true)?;
+
+            if descriptor.package.is_empty() {
+                // Empty package: output path is based on input filename,
+                // so each file naturally gets its own output. No merging.
+                no_package.push(descriptor);
+            } else {
+                match grouped.entry(descriptor.package.clone()) {
+                    Entry::Occupied(mut entry) => {
+                        let existing = entry.get_mut();
+                        existing.messages.extend(descriptor.messages);
+                        existing.enums.extend(descriptor.enums);
+                    }
+                    Entry::Vacant(entry) => {
+                        entry.insert(descriptor);
+                    }
+                }
+            }
+        }
+
+        // Resolve types and write output for each (possibly merged) descriptor.
+        for mut descriptor in grouped.into_values().chain(no_package) {
+            descriptor.resolve_types()?;
+            descriptor.sanity_checks()?;
             descriptor.write_to_file(&output_dir, &self.crate_path)?;
         }
 
@@ -292,5 +324,42 @@ message TestMessage {
 
         assert!(output_dir.join("first.rs").exists());
         assert!(output_dir.join("second.rs").exists());
+    }
+
+    #[test]
+    fn test_compile_multiple_files_same_package() {
+        let temp = tempdir().unwrap();
+
+        let proto1 = temp.path().join("messages.proto");
+        fs::write(
+            &proto1,
+            "syntax = \"proto3\";\npackage shared;\nmessage First { string name = 1; }\n",
+        )
+        .unwrap();
+
+        let proto2 = temp.path().join("more_messages.proto");
+        fs::write(
+            &proto2,
+            "syntax = \"proto3\";\npackage shared;\nmessage Second { int32 value = 1; }\n",
+        )
+        .unwrap();
+
+        let output_dir = temp.path().join("output");
+        ConfigBuilder::new()
+            .input_files(&[&proto1, &proto2])
+            .output_dir(&output_dir)
+            .include_paths(&[temp.path()])
+            .compile()
+            .unwrap();
+
+        let content = fs::read_to_string(output_dir.join("shared.rs")).unwrap();
+        assert!(
+            content.contains("pub struct FirstBuilder"),
+            "First message missing from output"
+        );
+        assert!(
+            content.contains("pub struct SecondBuilder"),
+            "Second message missing from output"
+        );
     }
 }
