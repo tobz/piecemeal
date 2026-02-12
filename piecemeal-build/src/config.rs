@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::{errors::Error, types::FileDescriptor};
@@ -184,11 +184,24 @@ impl ConfigBuilder {
             }
         }
 
+        // Determine which packages are "parents" — i.e., another package has them
+        // as a prefix. Parent packages must be written to <name>/mod.rs instead of
+        // <name>.rs so they don't conflict with the sub-package directory.
+        let parent_packages: HashSet<String> = grouped
+            .keys()
+            .filter(|pkg| {
+                let prefix = format!("{}.", pkg);
+                grouped.keys().any(|other| other.starts_with(&prefix))
+            })
+            .cloned()
+            .collect();
+
         // Resolve types and write output for each (possibly merged) descriptor.
         for mut descriptor in grouped.into_values().chain(no_package) {
+            let is_parent = parent_packages.contains(&descriptor.package);
             descriptor.resolve_types()?;
             descriptor.sanity_checks()?;
-            descriptor.write_to_file(&output_dir, &self.crate_path)?;
+            descriptor.write_to_file(&output_dir, &self.crate_path, is_parent)?;
         }
 
         Ok(())
@@ -360,6 +373,56 @@ message TestMessage {
         assert!(
             content.contains("pub struct SecondBuilder"),
             "Second message missing from output"
+        );
+    }
+
+    #[test]
+    fn test_compile_parent_and_child_packages() {
+        let temp = tempdir().unwrap();
+
+        let proto1 = temp.path().join("parent.proto");
+        fs::write(
+            &proto1,
+            "syntax = \"proto3\";\npackage a.b;\nmessage Parent { string name = 1; }\n",
+        )
+        .unwrap();
+
+        let proto2 = temp.path().join("child.proto");
+        fs::write(
+            &proto2,
+            "syntax = \"proto3\";\npackage a.b.c;\nmessage Child { int32 value = 1; }\n",
+        )
+        .unwrap();
+
+        let output_dir = temp.path().join("output");
+        ConfigBuilder::new()
+            .input_files(&[&proto1, &proto2])
+            .output_dir(&output_dir)
+            .include_paths(&[temp.path()])
+            .compile()
+            .unwrap();
+
+        // Parent package should be at a/b/mod.rs (not a/b.rs) since it has a child package
+        assert!(
+            !output_dir.join("a/b.rs").exists(),
+            "a/b.rs should not exist when a/b/ directory is needed"
+        );
+        let parent_content = fs::read_to_string(output_dir.join("a/b/mod.rs")).unwrap();
+        assert!(
+            parent_content.contains("pub struct ParentBuilder"),
+            "Parent types missing from a/b/mod.rs"
+        );
+        // mod.rs should also declare the child module
+        assert!(
+            parent_content.contains("pub mod c;"),
+            "Child module declaration missing from a/b/mod.rs"
+        );
+
+        // Child package should be at a/b/c.rs
+        let child_content = fs::read_to_string(output_dir.join("a/b/c.rs")).unwrap();
+        assert!(
+            child_content.contains("pub struct ChildBuilder"),
+            "Child types missing from a/b/c.rs"
         );
     }
 }

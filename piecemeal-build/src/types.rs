@@ -1219,7 +1219,12 @@ impl FileDescriptor {
     /// # Errors
     ///
     /// If there is an issue during code generation, or with writing the output file, an error is returned.
-    pub fn write_to_file(self, output_dir: &Path, crate_path: &str) -> Result<(), Error> {
+    pub fn write_to_file(
+        self,
+        output_dir: &Path,
+        crate_path: &str,
+        is_parent: bool,
+    ) -> Result<(), Error> {
         // Files with only extend blocks have no messages or enums to generate code for.
         // Skip writing an output file for them.
         if self.messages.is_empty() && self.enums.is_empty() {
@@ -1237,12 +1242,11 @@ impl FileDescriptor {
         if !file_package.is_empty() {
             sanitize_keyword(&mut file_stem);
         }
-        let mut output_file = output_dir.join(format!("{}.rs", file_stem));
+        let mut output_file = output_dir.join(&file_stem);
 
         if !prefix.is_empty() {
             // e.g. package is a.b; we need to create directory 'a' and insert it into the path
-            let file = PathBuf::from(output_file.file_name().unwrap());
-            output_file.pop();
+            output_file = output_dir.to_path_buf();
             for p in prefix.split('.') {
                 output_file.push(p);
 
@@ -1251,7 +1255,7 @@ impl FileDescriptor {
                     update_mod_file(&output_file)?;
                 }
             }
-            output_file.push(file);
+            output_file.push(&file_stem);
         }
 
         let name = self
@@ -1260,9 +1264,28 @@ impl FileDescriptor {
             .and_then(|e| e.to_str())
             .unwrap();
 
-        let mut w = BufWriter::new(File::create(&output_file)?);
-        self.write(&mut w, name, crate_path)?;
-        update_mod_file(&output_file)
+        if is_parent {
+            // This package has sub-packages, so we must write to <file_stem>/mod.rs
+            // instead of <file_stem>.rs to avoid conflicting with the directory that
+            // sub-packages need.
+            if !output_file.exists() {
+                create_dir_all(&output_file)?;
+                update_mod_file(&output_file)?;
+            }
+            output_file.push("mod.rs");
+
+            let mut w = BufWriter::new(File::create(&output_file)?);
+            // Prepend MAGIC_HEADER so that update_mod_file recognizes this file and
+            // can append child module declarations to it.
+            writeln!(w, "{}", MAGIC_HEADER)?;
+            self.write(&mut w, name, crate_path)?;
+            Ok(())
+        } else {
+            output_file.set_extension("rs");
+            let mut w = BufWriter::new(File::create(&output_file)?);
+            self.write(&mut w, name, crate_path)?;
+            update_mod_file(&output_file)
+        }
     }
 
     pub(crate) fn sanity_checks(&self) -> Result<(), Error> {
