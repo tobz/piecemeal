@@ -197,7 +197,9 @@ impl ConfigBuilder {
             .collect();
 
         // Resolve types and write output for each (possibly merged) descriptor.
-        for mut descriptor in grouped.into_values().chain(no_package) {
+        let mut descriptors: Vec<_> = grouped.into_values().collect();
+        descriptors.sort_by_key(|d| d.package.len());
+        for mut descriptor in descriptors.into_iter().chain(no_package) {
             let is_parent = parent_packages.contains(&descriptor.package);
             descriptor.resolve_types()?;
             descriptor.sanity_checks()?;
