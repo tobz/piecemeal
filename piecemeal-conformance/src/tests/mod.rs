@@ -929,6 +929,641 @@ fn proto2_defaults_roundtrip() {
     assert!((decoded.rate() - 2.5).abs() < 0.001);
 }
 
+/// Decode conformance tests: prost encodes → piecemeal `Decoded` struct decodes.
+///
+/// These tests verify that piecemeal's generated decoded structs correctly read protobuf wire format
+/// produced by prost (a known-correct implementation).
+mod decode {
+    use crate::prost_protos;
+    use crate::protos;
+    use prost::Message;
+
+    #[test]
+    fn scalar_types_decode() {
+        use prost_protos::scalars::all_scalar_types::AllScalarTypes;
+        use protos::scalars::all_scalar_types::AllScalarTypesDecoded;
+
+        let msg = AllScalarTypes {
+            int32_field: 42,
+            int64_field: 123456789,
+            uint32_field: 100,
+            uint64_field: 200,
+            sint32_field: -50,
+            sint64_field: -100,
+            bool_field: true,
+            fixed32_field: 1000,
+            fixed64_field: 2000,
+            sfixed32_field: -500,
+            sfixed64_field: -1000,
+            float_field: 3.125,
+            double_field: 2.625,
+            string_field: "hello".into(),
+            bytes_field: vec![1, 2, 3, 4].into(),
+        };
+
+        let buf = msg.encode_to_vec();
+        let decoded = AllScalarTypesDecoded::decode(&buf).unwrap();
+
+        assert_eq!(decoded.int32_field(), 42);
+        assert_eq!(decoded.int64_field(), 123456789);
+        assert_eq!(decoded.uint32_field(), 100);
+        assert_eq!(decoded.uint64_field(), 200);
+        assert_eq!(decoded.sint32_field(), -50);
+        assert_eq!(decoded.sint64_field(), -100);
+        assert!(decoded.bool_field());
+        assert_eq!(decoded.fixed32_field(), 1000);
+        assert_eq!(decoded.fixed64_field(), 2000);
+        assert_eq!(decoded.sfixed32_field(), -500);
+        assert_eq!(decoded.sfixed64_field(), -1000);
+        assert_eq!(decoded.float_field(), 3.125);
+        assert_eq!(decoded.double_field(), 2.625);
+        assert_eq!(decoded.string_field(), "hello");
+        assert_eq!(decoded.bytes_field(), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn scalar_types_defaults_decode() {
+        // An empty message should give proto3 defaults.
+        use protos::scalars::all_scalar_types::AllScalarTypesDecoded;
+
+        let decoded = AllScalarTypesDecoded::decode(&[]).unwrap();
+
+        assert_eq!(decoded.int32_field(), 0);
+        assert_eq!(decoded.int64_field(), 0);
+        assert_eq!(decoded.uint32_field(), 0);
+        assert_eq!(decoded.uint64_field(), 0);
+        assert_eq!(decoded.sint32_field(), 0);
+        assert_eq!(decoded.sint64_field(), 0);
+        assert!(!decoded.bool_field());
+        assert_eq!(decoded.fixed32_field(), 0);
+        assert_eq!(decoded.fixed64_field(), 0);
+        assert_eq!(decoded.sfixed32_field(), 0);
+        assert_eq!(decoded.sfixed64_field(), 0);
+        assert_eq!(decoded.float_field(), 0.0);
+        assert_eq!(decoded.double_field(), 0.0);
+        assert_eq!(decoded.string_field(), "");
+        assert_eq!(decoded.bytes_field(), b"" as &[u8]);
+    }
+
+    #[test]
+    fn enum_decode() {
+        use prost_protos::enums::basic_enum::MessageWithEnum;
+        use protos::enums::basic_enum::{MessageWithEnumDecoded, Status};
+
+        let msg = MessageWithEnum {
+            status: 1, // ACTIVE
+            name: "test".into(),
+        };
+
+        let buf = msg.encode_to_vec();
+        let decoded = MessageWithEnumDecoded::decode(&buf).unwrap();
+
+        assert_eq!(decoded.status(), Status::ACTIVE);
+        assert_eq!(decoded.name(), "test");
+    }
+
+    #[test]
+    fn nested_message_decode() {
+        use prost_protos::messages::nested_messages::{
+            Outer,
+            outer::{Middle, middle::Inner},
+        };
+        use protos::messages::nested_messages::OuterDecoded;
+
+        let msg = Outer {
+            name: "outer".into(),
+            middle: Some(Middle {
+                label: "middle".into(),
+                inner: Some(Inner {
+                    value: "inner_value".into(),
+                    count: 42,
+                }),
+            }),
+        };
+
+        let buf = msg.encode_to_vec();
+        let decoded = OuterDecoded::decode(&buf).unwrap();
+
+        assert_eq!(decoded.name(), "outer");
+        let middle = decoded.middle().unwrap();
+        assert_eq!(middle.label(), "middle");
+        let inner = middle.inner().unwrap();
+        assert_eq!(inner.value(), "inner_value");
+        assert_eq!(inner.count(), 42);
+    }
+
+    #[test]
+    fn nested_message_absent_decode() {
+        // When no sub-message is set, accessor should return defaults.
+        use protos::messages::nested_messages::OuterDecoded;
+
+        let decoded = OuterDecoded::decode(&[]).unwrap();
+
+        assert_eq!(decoded.name(), "");
+        let middle = decoded.middle().unwrap();
+        assert_eq!(middle.label(), "");
+        let inner = middle.inner().unwrap();
+        assert_eq!(inner.value(), "");
+        assert_eq!(inner.count(), 0);
+    }
+
+    #[test]
+    fn oneof_scalar_decode() {
+        use prost_protos::oneofs::basic_oneof::{MessageWithOneof, message_with_oneof::Payload};
+        use protos::oneofs::basic_oneof::{MessageWithOneofDecoded, PayloadOneOf};
+
+        let msg = MessageWithOneof {
+            name: "test".into(),
+            other_field: 42,
+            payload: Some(Payload::TextValue("hello".into())),
+        };
+
+        let buf = msg.encode_to_vec();
+        let decoded = MessageWithOneofDecoded::decode(&buf).unwrap();
+
+        assert_eq!(decoded.name(), "test");
+        assert_eq!(decoded.other_field(), 42);
+        match decoded.payload() {
+            Some(PayloadOneOf::TextValue(s)) => assert_eq!(*s, "hello"),
+            other => panic!("Expected TextValue, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn oneof_int_decode() {
+        use prost_protos::oneofs::basic_oneof::{MessageWithOneof, message_with_oneof::Payload};
+        use protos::oneofs::basic_oneof::{MessageWithOneofDecoded, PayloadOneOf};
+
+        let msg = MessageWithOneof {
+            name: "test".into(),
+            other_field: 0,
+            payload: Some(Payload::IntValue(12345)),
+        };
+
+        let buf = msg.encode_to_vec();
+        let decoded = MessageWithOneofDecoded::decode(&buf).unwrap();
+
+        match decoded.payload() {
+            Some(PayloadOneOf::IntValue(v)) => assert_eq!(*v, 12345),
+            other => panic!("Expected IntValue, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn oneof_message_decode() {
+        use prost_protos::oneofs::basic_oneof::{
+            InnerMessage, MessageWithOneof, message_with_oneof::Payload,
+        };
+        use protos::oneofs::basic_oneof::{MessageWithOneofDecoded, PayloadOneOf};
+
+        let msg = MessageWithOneof {
+            name: "test".into(),
+            other_field: 0,
+            payload: Some(Payload::MessageValue(InnerMessage {
+                value: "inner".into(),
+                count: 10,
+            })),
+        };
+
+        let buf = msg.encode_to_vec();
+        let decoded = MessageWithOneofDecoded::decode(&buf).unwrap();
+
+        match decoded.payload() {
+            Some(PayloadOneOf::MessageValue(bytes)) => {
+                let inner = decoded.decode_message_value(bytes).unwrap();
+                assert_eq!(inner.value(), "inner");
+                assert_eq!(inner.count(), 10);
+            }
+            other => panic!("Expected MessageValue, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn oneof_none_decode() {
+        use prost_protos::oneofs::basic_oneof::MessageWithOneof;
+        use protos::oneofs::basic_oneof::MessageWithOneofDecoded;
+
+        let msg = MessageWithOneof {
+            name: "test".into(),
+            other_field: 5,
+            payload: None,
+        };
+
+        let buf = msg.encode_to_vec();
+        let decoded = MessageWithOneofDecoded::decode(&buf).unwrap();
+
+        assert_eq!(decoded.name(), "test");
+        assert_eq!(decoded.other_field(), 5);
+        assert!(decoded.payload().is_none());
+    }
+
+    #[test]
+    fn multiple_oneofs_decode() {
+        use prost_protos::oneofs::basic_oneof::{
+            MessageWithMultipleOneofs,
+            message_with_multiple_oneofs::{FirstChoice, SecondChoice},
+        };
+        use protos::oneofs::basic_oneof::{
+            FirstChoiceOneOf, MessageWithMultipleOneofsDecoded, SecondChoiceOneOf,
+        };
+
+        let msg = MessageWithMultipleOneofs {
+            first_choice: Some(FirstChoice::OptionA("chosen".into())),
+            second_choice: Some(SecondChoice::Amount(123.456)),
+        };
+
+        let buf = msg.encode_to_vec();
+        let decoded = MessageWithMultipleOneofsDecoded::decode(&buf).unwrap();
+
+        match decoded.first_choice() {
+            Some(FirstChoiceOneOf::OptionA(s)) => assert_eq!(*s, "chosen"),
+            other => panic!("Expected OptionA, got {:?}", other),
+        }
+        match decoded.second_choice() {
+            Some(SecondChoiceOneOf::Amount(v)) => assert!((v - 123.456).abs() < 0.001),
+            other => panic!("Expected Amount, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn repeated_scalars_decode() {
+        use prost_protos::repeated::repeated_scalars::RepeatedScalars;
+        use protos::repeated::repeated_scalars::RepeatedScalarsDecoded;
+
+        let msg = RepeatedScalars {
+            int32_values: vec![1, 2, 3],
+            int64_values: vec![100, 200, 300],
+            string_values: vec!["a".into(), "b".into(), "c".into()],
+            double_values: vec![1.5, 2.5, 3.5],
+            uint32_values: vec![10, 20, 30],
+            sint32_values: vec![-1, -2, -3],
+            sint64_values: vec![-100, -200, -300],
+            fixed32_values: vec![1000, 2000, 3000],
+            fixed64_values: vec![10000, 20000, 30000],
+            sfixed32_values: vec![-10, -20, -30],
+            sfixed64_values: vec![-100, -200, -300],
+            float_values: vec![0.5, 1.5, 2.5],
+            bool_values: vec![true, false, true],
+            bytes_values: vec![vec![1, 2], vec![3, 4], vec![5, 6]],
+            uint64_values: vec![100, 200, 300],
+        };
+
+        let buf = msg.encode_to_vec();
+        let decoded = RepeatedScalarsDecoded::decode(&buf).unwrap();
+
+        let int32s: Vec<i32> = decoded.int32_values().collect::<Result<_, _>>().unwrap();
+        assert_eq!(int32s, vec![1, 2, 3]);
+
+        let int64s: Vec<i64> = decoded.int64_values().collect::<Result<_, _>>().unwrap();
+        assert_eq!(int64s, vec![100, 200, 300]);
+
+        let strings: Vec<&str> = decoded.string_values().collect::<Result<_, _>>().unwrap();
+        assert_eq!(strings, vec!["a", "b", "c"]);
+
+        let doubles: Vec<f64> = decoded.double_values().collect::<Result<_, _>>().unwrap();
+        assert_eq!(doubles, vec![1.5, 2.5, 3.5]);
+
+        let uint32s: Vec<u32> = decoded.uint32_values().collect::<Result<_, _>>().unwrap();
+        assert_eq!(uint32s, vec![10, 20, 30]);
+
+        let sint32s: Vec<i32> = decoded.sint32_values().collect::<Result<_, _>>().unwrap();
+        assert_eq!(sint32s, vec![-1, -2, -3]);
+
+        let sint64s: Vec<i64> = decoded.sint64_values().collect::<Result<_, _>>().unwrap();
+        assert_eq!(sint64s, vec![-100, -200, -300]);
+
+        let fixed32s: Vec<u32> = decoded.fixed32_values().collect::<Result<_, _>>().unwrap();
+        assert_eq!(fixed32s, vec![1000, 2000, 3000]);
+
+        let fixed64s: Vec<u64> = decoded.fixed64_values().collect::<Result<_, _>>().unwrap();
+        assert_eq!(fixed64s, vec![10000, 20000, 30000]);
+
+        let sfixed32s: Vec<i32> = decoded.sfixed32_values().collect::<Result<_, _>>().unwrap();
+        assert_eq!(sfixed32s, vec![-10, -20, -30]);
+
+        let sfixed64s: Vec<i64> = decoded.sfixed64_values().collect::<Result<_, _>>().unwrap();
+        assert_eq!(sfixed64s, vec![-100, -200, -300]);
+
+        let floats: Vec<f32> = decoded.float_values().collect::<Result<_, _>>().unwrap();
+        assert_eq!(floats, vec![0.5, 1.5, 2.5]);
+
+        let bools: Vec<bool> = decoded.bool_values().collect::<Result<_, _>>().unwrap();
+        assert_eq!(bools, vec![true, false, true]);
+
+        let bytes: Vec<&[u8]> = decoded.bytes_values().collect::<Result<_, _>>().unwrap();
+        assert_eq!(bytes, vec![&[1u8, 2][..], &[3, 4][..], &[5, 6][..]]);
+
+        let uint64s: Vec<u64> = decoded.uint64_values().collect::<Result<_, _>>().unwrap();
+        assert_eq!(uint64s, vec![100, 200, 300]);
+    }
+
+    #[test]
+    fn repeated_empty_decode() {
+        // Empty repeated fields should produce empty iterators.
+        use protos::repeated::repeated_scalars::RepeatedScalarsDecoded;
+
+        let decoded = RepeatedScalarsDecoded::decode(&[]).unwrap();
+
+        let int32s: Vec<i32> = decoded.int32_values().collect::<Result<_, _>>().unwrap();
+        assert!(int32s.is_empty());
+
+        let strings: Vec<&str> = decoded.string_values().collect::<Result<_, _>>().unwrap();
+        assert!(strings.is_empty());
+    }
+
+    #[test]
+    fn repeated_messages_decode() {
+        use prost_protos::messages::repeated_messages::{Inner, Outer};
+        use protos::messages::repeated_messages::OuterDecoded;
+
+        let msg = Outer {
+            name: "container".into(),
+            items: vec![
+                Inner {
+                    value: "first".into(),
+                    count: 1,
+                },
+                Inner {
+                    value: "second".into(),
+                    count: 2,
+                },
+                Inner {
+                    value: "third".into(),
+                    count: 3,
+                },
+            ],
+        };
+
+        let buf = msg.encode_to_vec();
+        let decoded = OuterDecoded::decode(&buf).unwrap();
+
+        assert_eq!(decoded.name(), "container");
+        let items: Vec<_> = decoded.items().collect::<Result<_, _>>().unwrap();
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0].value(), "first");
+        assert_eq!(items[0].count(), 1);
+        assert_eq!(items[1].value(), "second");
+        assert_eq!(items[1].count(), 2);
+        assert_eq!(items[2].value(), "third");
+        assert_eq!(items[2].count(), 3);
+    }
+
+    #[test]
+    fn map_string_to_string_decode() {
+        use prost_protos::maps::map_scalar_scalar::MapKeyScalar;
+        use protos::maps::map_scalar_scalar::MapKeyScalarDecoded;
+
+        let mut msg = MapKeyScalar::default();
+        msg.string_to_string.insert("key1".into(), "value1".into());
+        msg.string_to_string.insert("key2".into(), "value2".into());
+
+        let buf = msg.encode_to_vec();
+        let decoded = MapKeyScalarDecoded::decode(&buf).unwrap();
+
+        let entries: Vec<(&str, &str)> = decoded
+            .string_to_string()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(entries.len(), 2);
+        // Map iteration order is not guaranteed, so sort.
+        let mut entries_sorted = entries.clone();
+        entries_sorted.sort_by_key(|(k, _)| *k);
+        assert_eq!(entries_sorted[0], ("key1", "value1"));
+        assert_eq!(entries_sorted[1], ("key2", "value2"));
+    }
+
+    #[test]
+    fn map_with_message_value_decode() {
+        use prost_protos::maps::map_scalar_message::{InnerMessage, MapKeyMessage};
+        use protos::maps::map_scalar_message::MapKeyMessageDecoded;
+
+        let mut msg = MapKeyMessage::default();
+        msg.string_to_message.insert(
+            "key1".into(),
+            InnerMessage {
+                name: "test_name".into(),
+                value: 42,
+            },
+        );
+
+        let buf = msg.encode_to_vec();
+        let decoded = MapKeyMessageDecoded::decode(&buf).unwrap();
+
+        let entries: Vec<_> = decoded
+            .string_to_message()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].0, "key1");
+        assert_eq!(entries[0].1.name(), "test_name");
+        assert_eq!(entries[0].1.value(), 42);
+    }
+
+    #[test]
+    fn import_decode() {
+        use prost_protos::imports::base_types::BaseMessage;
+        use prost_protos::imports::importing_file::ImportingMessage;
+        use protos::imports::base_types::BaseEnum;
+        use protos::imports::importing_file::ImportingMessageDecoded;
+
+        let msg = ImportingMessage {
+            extra_field: "extra".into(),
+            status: 1, // BASE_VALUE_ONE
+            base: Some(BaseMessage {
+                id: "id-123".into(),
+                timestamp: 1234567890,
+            }),
+        };
+
+        let buf = msg.encode_to_vec();
+        let decoded = ImportingMessageDecoded::decode(&buf).unwrap();
+
+        assert_eq!(decoded.extra_field(), "extra");
+        assert_eq!(decoded.status(), BaseEnum::BASE_VALUE_ONE);
+        let base = decoded.base().unwrap();
+        assert_eq!(base.id(), "id-123");
+        assert_eq!(base.timestamp(), 1234567890);
+    }
+
+    #[test]
+    fn empty_message_decode() {
+        use prost_protos::messages::empty_message::ContainsEmpty;
+        use protos::messages::empty_message::ContainsEmptyDecoded;
+
+        let msg = ContainsEmpty {
+            name: "test".into(),
+            empty: Some(prost_protos::messages::empty_message::EmptyMessage {}),
+        };
+
+        let buf = msg.encode_to_vec();
+        let decoded = ContainsEmptyDecoded::decode(&buf).unwrap();
+
+        assert_eq!(decoded.name(), "test");
+    }
+
+    #[test]
+    fn roundtrip_piecemeal_encode_piecemeal_decode() {
+        // Full roundtrip: piecemeal encodes → piecemeal decodes (no prost involved).
+        use piecemeal::ScratchWriter;
+        use protos::scalars::all_scalar_types::{AllScalarTypesBuilder, AllScalarTypesDecoded};
+
+        let scratch_buf = Vec::with_capacity(1024);
+        let mut scratch_writer = ScratchWriter::new(scratch_buf);
+
+        let mut builder = AllScalarTypesBuilder::new(&mut scratch_writer);
+        builder
+            .int32_field(42)
+            .unwrap()
+            .int64_field(123456789)
+            .unwrap()
+            .uint32_field(100)
+            .unwrap()
+            .uint64_field(200)
+            .unwrap()
+            .sint32_field(-50)
+            .unwrap()
+            .sint64_field(-100)
+            .unwrap()
+            .bool_field(true)
+            .unwrap()
+            .fixed32_field(1000)
+            .unwrap()
+            .fixed64_field(2000)
+            .unwrap()
+            .sfixed32_field(-500)
+            .unwrap()
+            .sfixed64_field(-1000)
+            .unwrap()
+            .float_field(3.125)
+            .unwrap()
+            .double_field(2.625)
+            .unwrap()
+            .string_field("hello")
+            .unwrap()
+            .bytes_field(&[1, 2, 3, 4])
+            .unwrap();
+
+        let mut output = Vec::new();
+        builder.finish(&mut output).unwrap();
+
+        let decoded = AllScalarTypesDecoded::decode(&output).unwrap();
+
+        assert_eq!(decoded.int32_field(), 42);
+        assert_eq!(decoded.int64_field(), 123456789);
+        assert_eq!(decoded.uint32_field(), 100);
+        assert_eq!(decoded.uint64_field(), 200);
+        assert_eq!(decoded.sint32_field(), -50);
+        assert_eq!(decoded.sint64_field(), -100);
+        assert!(decoded.bool_field());
+        assert_eq!(decoded.fixed32_field(), 1000);
+        assert_eq!(decoded.fixed64_field(), 2000);
+        assert_eq!(decoded.sfixed32_field(), -500);
+        assert_eq!(decoded.sfixed64_field(), -1000);
+        assert_eq!(decoded.float_field(), 3.125);
+        assert_eq!(decoded.double_field(), 2.625);
+        assert_eq!(decoded.string_field(), "hello");
+        assert_eq!(decoded.bytes_field(), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn roundtrip_nested_piecemeal_encode_decode() {
+        use piecemeal::ScratchWriter;
+        use protos::messages::nested_messages::{OuterBuilder, OuterDecoded};
+
+        let scratch_buf = Vec::with_capacity(1024);
+        let mut scratch_writer = ScratchWriter::new(scratch_buf);
+
+        let mut builder = OuterBuilder::new(&mut scratch_writer);
+        builder
+            .name("outer")
+            .unwrap()
+            .middle(|middle| {
+                middle.label("middle")?.inner(|inner| {
+                    inner.value("inner_value")?.count(42)?;
+                    Ok(())
+                })?;
+                Ok(())
+            })
+            .unwrap();
+
+        let mut output = Vec::new();
+        builder.finish(&mut output).unwrap();
+
+        let decoded = OuterDecoded::decode(&output).unwrap();
+        assert_eq!(decoded.name(), "outer");
+        let middle = decoded.middle().unwrap();
+        assert_eq!(middle.label(), "middle");
+        let inner = middle.inner().unwrap();
+        assert_eq!(inner.value(), "inner_value");
+        assert_eq!(inner.count(), 42);
+    }
+
+    #[test]
+    fn roundtrip_repeated_piecemeal_encode_decode() {
+        use piecemeal::ScratchWriter;
+        use protos::repeated::repeated_scalars::{RepeatedScalarsBuilder, RepeatedScalarsDecoded};
+
+        let scratch_buf = Vec::with_capacity(1024);
+        let mut scratch_writer = ScratchWriter::new(scratch_buf);
+
+        let mut builder = RepeatedScalarsBuilder::new(&mut scratch_writer);
+        builder
+            .int32_values(|rb| rb.add_many([1, 2, 3]))
+            .unwrap()
+            .string_values(|rb| rb.add_many(["a", "b", "c"]))
+            .unwrap()
+            .double_values(|rb| rb.add_many([1.5, 2.5, 3.5]))
+            .unwrap();
+
+        let mut output = Vec::new();
+        builder.finish(&mut output).unwrap();
+
+        let decoded = RepeatedScalarsDecoded::decode(&output).unwrap();
+
+        let int32s: Vec<i32> = decoded.int32_values().collect::<Result<_, _>>().unwrap();
+        assert_eq!(int32s, vec![1, 2, 3]);
+
+        let strings: Vec<&str> = decoded.string_values().collect::<Result<_, _>>().unwrap();
+        assert_eq!(strings, vec!["a", "b", "c"]);
+
+        let doubles: Vec<f64> = decoded.double_values().collect::<Result<_, _>>().unwrap();
+        assert_eq!(doubles, vec![1.5, 2.5, 3.5]);
+    }
+
+    #[test]
+    fn roundtrip_map_piecemeal_encode_decode() {
+        use piecemeal::ScratchWriter;
+        use protos::maps::map_scalar_scalar::{MapKeyScalarBuilder, MapKeyScalarDecoded};
+
+        let scratch_buf = Vec::with_capacity(1024);
+        let mut scratch_writer = ScratchWriter::new(scratch_buf);
+
+        let mut builder = MapKeyScalarBuilder::new(&mut scratch_writer);
+        builder
+            .string_to_string()
+            .write_entry("key1", "value1")
+            .unwrap();
+        builder
+            .string_to_string()
+            .write_entry("key2", "value2")
+            .unwrap();
+
+        let mut output = Vec::new();
+        builder.finish(&mut output).unwrap();
+
+        let decoded = MapKeyScalarDecoded::decode(&output).unwrap();
+
+        let mut entries: Vec<(&str, &str)> = decoded
+            .string_to_string()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        entries.sort_by_key(|(k, _)| *k);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0], ("key1", "value1"));
+        assert_eq!(entries[1], ("key2", "value2"));
+    }
+}
+
 mod invalid_protos {
     use piecemeal_build::ConfigBuilder;
     use std::path::Path;

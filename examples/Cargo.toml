@@ -10,6 +10,10 @@ publish = false
 name = "simple"
 path = "src/simple/mod.rs"
 
+[[bin]]
+name = "decode"
+path = "src/decode/mod.rs"
+
 [dependencies]
 base64 = { version = "0.22", default-features = false }
 piecemeal = { path = "../piecemeal" }

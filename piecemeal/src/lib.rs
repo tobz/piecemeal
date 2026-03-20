@@ -12,6 +12,8 @@ pub mod types;
 
 pub use self::builder::{GenericMapBuilder, MessageMapBuilder, RepeatedBuilder};
 pub use self::io::{
+    iter::{FieldIter, MapIter, PackedFieldIter},
+    reader::{DecodeError, FieldSlice, RawField, Reader},
     scratch::{ScratchBuffer, ScratchWriter},
     writer::Writer,
 };

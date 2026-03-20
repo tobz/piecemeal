@@ -251,6 +251,7 @@ pub mod protobuf {
 }
 
 /// Wire type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WireType {
     /// Variable-width integer.
     ///
@@ -285,6 +286,17 @@ impl WireType {
             WireType::Fixed64 => 1,
             WireType::LengthDelimited => 2,
             WireType::Fixed32 => 5,
+        }
+    }
+
+    /// Converts a raw `u32` wire type value to a `WireType`, if valid.
+    pub const fn from_u32(v: u32) -> Option<WireType> {
+        match v {
+            0 => Some(WireType::Varint),
+            1 => Some(WireType::Fixed64),
+            2 => Some(WireType::LengthDelimited),
+            5 => Some(WireType::Fixed32),
+            _ => None,
         }
     }
 }

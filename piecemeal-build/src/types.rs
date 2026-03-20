@@ -335,6 +335,108 @@ impl FieldType {
             _ => unreachable!("not a scalar type"),
         }
     }
+
+    // --- Decode-side helpers ---
+
+    /// Returns the `Reader` method name for reading this scalar type.
+    fn get_read(&self) -> &'static str {
+        match *self {
+            FieldType::Int32 => "read_int32",
+            FieldType::Int64 => "read_int64",
+            FieldType::Uint32 => "read_uint32",
+            FieldType::Uint64 => "read_uint64",
+            FieldType::Sint32 => "read_sint32",
+            FieldType::Sint64 => "read_sint64",
+            FieldType::Bool => "read_bool",
+            FieldType::Enum(_) => "read_enum",
+            FieldType::Fixed32 => "read_fixed32",
+            FieldType::Fixed64 => "read_fixed64",
+            FieldType::Sfixed32 => "read_sfixed32",
+            FieldType::Sfixed64 => "read_sfixed64",
+            FieldType::Float => "read_float",
+            FieldType::Double => "read_double",
+            FieldType::String => "read_string",
+            FieldType::Bytes => "read_bytes",
+            FieldType::MessageOrEnum(_) => panic!("message / enum not resolved"),
+            _ => panic!("not a readable scalar type"),
+        }
+    }
+
+    /// Returns the Rust type for this field as it appears on a decoded struct.
+    /// Borrowed types include `'a` lifetime.
+    fn decode_rust_type(&self, desc: &FileDescriptor) -> String {
+        match *self {
+            FieldType::Int32 | FieldType::Sint32 | FieldType::Sfixed32 => "i32".to_string(),
+            FieldType::Int64 | FieldType::Sint64 | FieldType::Sfixed64 => "i64".to_string(),
+            FieldType::Uint32 | FieldType::Fixed32 => "u32".to_string(),
+            FieldType::Uint64 | FieldType::Fixed64 => "u64".to_string(),
+            FieldType::Float => "f32".to_string(),
+            FieldType::Double => "f64".to_string(),
+            FieldType::Bool => "bool".to_string(),
+            FieldType::String => "&'a str".to_string(),
+            FieldType::Bytes => "&'a [u8]".to_string(),
+            FieldType::Enum(ref e) => {
+                let e = e.get_enum(desc);
+                format!("{}{}", e.get_modules(desc), e.name)
+            }
+            FieldType::Message(_) => "FieldSlice".to_string(),
+            FieldType::MessageOrEnum(_) => panic!("message / enum not resolved"),
+            FieldType::Map(_, _) => panic!("maps are not stored on decoded structs"),
+        }
+    }
+
+    /// Returns the proto3 default value as a Rust literal.
+    fn default_value(&self, desc: &FileDescriptor) -> String {
+        match *self {
+            FieldType::Int32 | FieldType::Sint32 | FieldType::Sfixed32 => "0i32".to_string(),
+            FieldType::Int64 | FieldType::Sint64 | FieldType::Sfixed64 => "0i64".to_string(),
+            FieldType::Uint32 | FieldType::Fixed32 => "0u32".to_string(),
+            FieldType::Uint64 | FieldType::Fixed64 => "0u64".to_string(),
+            FieldType::Float => "0.0f32".to_string(),
+            FieldType::Double => "0.0f64".to_string(),
+            FieldType::Bool => "false".to_string(),
+            FieldType::String => "\"\"".to_string(),
+            FieldType::Bytes => "b\"\" as &[u8]".to_string(),
+            FieldType::Enum(ref e) => {
+                let e = e.get_enum(desc);
+                format!("{}{}::default()", e.get_modules(desc), e.name)
+            }
+            FieldType::Message(_) => "FieldSlice::None".to_string(),
+            FieldType::MessageOrEnum(_) => panic!("message / enum not resolved"),
+            FieldType::Map(_, _) => panic!("maps don't have default values on structs"),
+        }
+    }
+
+    /// Returns true if this scalar type can appear in packed encoding.
+    fn is_packable(&self) -> bool {
+        matches!(
+            *self,
+            FieldType::Int32
+                | FieldType::Int64
+                | FieldType::Uint32
+                | FieldType::Uint64
+                | FieldType::Sint32
+                | FieldType::Sint64
+                | FieldType::Bool
+                | FieldType::Enum(_)
+                | FieldType::Fixed32
+                | FieldType::Fixed64
+                | FieldType::Sfixed32
+                | FieldType::Sfixed64
+                | FieldType::Float
+                | FieldType::Double
+        )
+    }
+
+    /// Returns the WireType variant name as a string for use in generated match arms.
+    fn wire_type_str(&self) -> &'static str {
+        match self.wire_type() {
+            WireType::Varint => "WireType::Varint",
+            WireType::Fixed64 => "WireType::Fixed64",
+            WireType::LengthDelimited => "WireType::LengthDelimited",
+            WireType::Fixed32 => "WireType::Fixed32",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -463,6 +565,9 @@ impl Message {
         for oneof in &self.oneofs {
             self.write_oneof_builder(w, oneof, desc)?;
         }
+
+        // Write decoded struct for this message
+        self.write_decoded_struct(w, desc)?;
 
         if !(self.nested_messages.is_empty() && self.nested_enums.is_empty()) {
             writeln!(w)?;
@@ -872,6 +977,797 @@ impl Message {
         writeln!(w, "        Ok(self)")?;
         writeln!(w, "    }}")?;
 
+        Ok(())
+    }
+
+    // --- Decoded struct codegen ---
+
+    fn write_decoded_struct<W: Write>(
+        &self,
+        w: &mut W,
+        desc: &FileDescriptor,
+    ) -> Result<(), Error> {
+        self.write_decoded_struct_definition(w, desc)?;
+        self.write_decoded_impl(w, desc)?;
+        Ok(())
+    }
+
+    /// Writes the decoded struct definition.
+    ///
+    /// Singular scalars/enums become direct pub fields.
+    /// Singular messages become private FieldSlice fields.
+    /// Repeated/map fields are not on the struct (lazy accessors).
+    /// Oneofs become Option<OneofEnum> fields.
+    fn write_decoded_struct_definition<W: Write>(
+        &self,
+        w: &mut W,
+        desc: &FileDescriptor,
+    ) -> Result<(), Error> {
+        writeln!(w)?;
+        writeln!(w, "pub struct {}Decoded<'a> {{", self.name)?;
+        writeln!(w, "    buf: &'a [u8],")?;
+
+        // Direct fields for singular scalars/enums and FieldSlice for singular messages.
+        for field in &self.fields {
+            if field.frequency.is_repeated() {
+                continue;
+            }
+            if let FieldType::Map(_, _) = &field.typ {
+                continue;
+            }
+            let rust_type = field.typ.decode_rust_type(desc);
+            writeln!(w, "    {}: {},", field.name, rust_type)?;
+        }
+
+        // Oneof fields as Option<enum>.
+        for oneof in &self.oneofs {
+            let needs_lifetime = oneof.fields.iter().any(|f| {
+                matches!(
+                    f.typ,
+                    FieldType::String | FieldType::Bytes | FieldType::Message(_)
+                )
+            });
+            let lifetime = if needs_lifetime { "<'a>" } else { "" };
+            writeln!(
+                w,
+                "    {}: Option<{}OneOf{}>,",
+                oneof.name,
+                snake_to_pascal_case(&oneof.name),
+                lifetime,
+            )?;
+        }
+
+        writeln!(w, "}}")?;
+
+        // Generate oneof enums.
+        for oneof in &self.oneofs {
+            self.write_decoded_oneof_enum(w, oneof, desc)?;
+        }
+
+        Ok(())
+    }
+
+    /// Writes the oneof enum for decoded structs.
+    fn write_decoded_oneof_enum<W: Write>(
+        &self,
+        w: &mut W,
+        oneof: &OneOf,
+        desc: &FileDescriptor,
+    ) -> Result<(), Error> {
+        let enum_name = format!("{}OneOf", snake_to_pascal_case(&oneof.name));
+
+        // Check if any variant needs a lifetime (borrows from the buffer).
+        let needs_lifetime = oneof.fields.iter().any(|f| {
+            matches!(
+                f.typ,
+                FieldType::String | FieldType::Bytes | FieldType::Message(_)
+            )
+        });
+
+        let lifetime = if needs_lifetime { "<'a>" } else { "" };
+
+        writeln!(w)?;
+        writeln!(w, "#[derive(Debug, Clone)]")?;
+        writeln!(w, "pub enum {}{} {{", enum_name, lifetime)?;
+        for field in &oneof.fields {
+            let variant_name = snake_to_pascal_case(&field.name);
+            match field.typ.category() {
+                FieldCategory::Scalar => {
+                    let rust_type = field.typ.decode_rust_type(desc);
+                    writeln!(w, "    {}({}),", variant_name, rust_type)?;
+                }
+                FieldCategory::Message => {
+                    // Store raw bytes for message variants.
+                    writeln!(w, "    {}(&'a [u8]),", variant_name)?;
+                }
+                FieldCategory::Map => {
+                    return Err(Error::InvalidMessage(
+                        "map fields are not allowed in oneof".to_string(),
+                    ));
+                }
+            }
+        }
+        writeln!(w, "}}")?;
+        Ok(())
+    }
+
+    /// Writes the impl block with decode(), merge_from(), and accessor methods.
+    fn write_decoded_impl<W: Write>(&self, w: &mut W, desc: &FileDescriptor) -> Result<(), Error> {
+        writeln!(w)?;
+        writeln!(w, "impl<'a> {}Decoded<'a> {{", self.name)?;
+
+        // decode()
+        self.write_decode_method(w, desc)?;
+
+        // decode_field() — for use as fn pointer in FieldIter for repeated message fields.
+        self.write_decode_field_method(w)?;
+
+        // merge_from()
+        self.write_merge_from_method(w, desc)?;
+
+        // Getter methods for singular scalar/enum fields.
+        for field in &self.fields {
+            if field.frequency.is_repeated() {
+                continue;
+            }
+            if let FieldType::Map(_, _) = &field.typ {
+                continue;
+            }
+            if field.typ.category() == FieldCategory::Message {
+                continue;
+            }
+            let rust_type = field.typ.decode_rust_type(desc);
+            writeln!(w)?;
+            writeln!(
+                w,
+                "    pub fn {}(&self) -> {} {{ self.{} }}",
+                field.name, rust_type, field.name
+            )?;
+        }
+
+        // Getter methods for oneof fields.
+        for oneof in &self.oneofs {
+            let needs_lifetime = oneof.fields.iter().any(|f| {
+                matches!(
+                    f.typ,
+                    FieldType::String | FieldType::Bytes | FieldType::Message(_)
+                )
+            });
+            let lifetime = if needs_lifetime { "<'a>" } else { "" };
+            let enum_name = format!("{}OneOf{}", snake_to_pascal_case(&oneof.name), lifetime);
+            writeln!(w)?;
+            writeln!(
+                w,
+                "    pub fn {}(&self) -> Option<&{}> {{ self.{}.as_ref() }}",
+                oneof.name, enum_name, oneof.name
+            )?;
+        }
+
+        // Accessor methods for singular messages.
+        for field in &self.fields {
+            if !field.frequency.is_repeated() && field.typ.category() == FieldCategory::Message {
+                self.write_singular_message_accessor(w, field, desc)?;
+            }
+        }
+
+        // Accessor methods for oneof message variants.
+        for oneof in &self.oneofs {
+            for field in &oneof.fields {
+                if field.typ.category() == FieldCategory::Message {
+                    self.write_oneof_message_accessor(w, oneof, field, desc)?;
+                }
+            }
+        }
+
+        // Accessor methods for repeated fields.
+        for field in &self.fields {
+            if field.frequency.is_repeated() {
+                self.write_repeated_accessor(w, field, desc)?;
+            }
+        }
+
+        // Accessor methods for map fields.
+        for field in &self.fields {
+            if let FieldType::Map(_, _) = &field.typ {
+                self.write_map_accessor(w, field, desc)?;
+            }
+        }
+
+        writeln!(w, "}}")?;
+
+        // Map entry decoder functions (module-level).
+        for field in &self.fields {
+            if let FieldType::Map(_, _) = &field.typ {
+                self.write_map_entry_decoder(w, field, desc)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Writes the `decode()` method.
+    fn write_decode_method<W: Write>(&self, w: &mut W, desc: &FileDescriptor) -> Result<(), Error> {
+        writeln!(
+            w,
+            "    pub fn decode(buf: &'a [u8]) -> Result<Self, DecodeError> {{"
+        )?;
+
+        // Declare mutable locals for all struct fields with defaults.
+        for field in &self.fields {
+            if field.frequency.is_repeated() {
+                continue;
+            }
+            if let FieldType::Map(_, _) = &field.typ {
+                continue;
+            }
+            let default = field.typ.default_value(desc);
+            match field.typ.category() {
+                FieldCategory::Message => {
+                    writeln!(w, "        let mut {} = {};", field.name, default)?;
+                }
+                _ => {
+                    let rust_type = field.typ.decode_rust_type(desc);
+                    writeln!(
+                        w,
+                        "        let mut {}: {} = {};",
+                        field.name, rust_type, default
+                    )?;
+                }
+            }
+        }
+
+        // Declare mutable locals for oneof fields.
+        for oneof in &self.oneofs {
+            let enum_name = format!("{}OneOf", snake_to_pascal_case(&oneof.name));
+            let needs_lifetime = oneof.fields.iter().any(|f| {
+                matches!(
+                    f.typ,
+                    FieldType::String | FieldType::Bytes | FieldType::Message(_)
+                )
+            });
+            let lifetime = if needs_lifetime { "<'a>" } else { "" };
+            writeln!(
+                w,
+                "        let mut {}: Option<{}{}> = None;",
+                oneof.name, enum_name, lifetime
+            )?;
+        }
+
+        writeln!(w, "        let mut reader = Reader::new(buf);")?;
+        writeln!(w, "        while !reader.is_empty() {{")?;
+        writeln!(
+            w,
+            "            let (field_number, wire_type) = reader.read_tag()?;"
+        )?;
+        writeln!(w, "            match (field_number, wire_type) {{")?;
+
+        // Match arms for singular scalar/enum fields.
+        for field in &self.fields {
+            if field.frequency.is_repeated() {
+                continue;
+            }
+            if let FieldType::Map(_, _) = &field.typ {
+                continue;
+            }
+            match field.typ.category() {
+                FieldCategory::Scalar => {
+                    let wt_str = field.typ.wire_type_str();
+                    let read_expr = if let FieldType::Enum(ref e) = field.typ {
+                        let e = e.get_enum(desc);
+                        format!(
+                            "{}{}::from(reader.read_enum()?)",
+                            e.get_modules(desc),
+                            e.name
+                        )
+                    } else {
+                        format!("reader.{}()?", field.typ.get_read())
+                    };
+                    writeln!(
+                        w,
+                        "                ({}, {}) => {{ {} = {}; }}",
+                        field.number, wt_str, field.name, read_expr
+                    )?;
+                }
+                FieldCategory::Message => {
+                    // Record offset+len for singular message field.
+                    writeln!(
+                        w,
+                        "                ({}, WireType::LengthDelimited) => {{",
+                        field.number
+                    )?;
+                    writeln!(
+                        w,
+                        "                    let len = reader.read_varint()? as u32;"
+                    )?;
+                    writeln!(
+                        w,
+                        "                    let offset = reader.position() as u32;"
+                    )?;
+                    writeln!(w, "                    reader.skip_bytes(len as usize)?;")?;
+                    writeln!(w, "                    {}.record(offset, len);", field.name)?;
+                    writeln!(w, "                }}")?;
+                }
+                FieldCategory::Map => {} // already handled above
+            }
+        }
+
+        // Match arms for oneof fields.
+        for oneof in &self.oneofs {
+            let enum_name = format!("{}OneOf", snake_to_pascal_case(&oneof.name));
+            for field in &oneof.fields {
+                let variant_name = snake_to_pascal_case(&field.name);
+                match field.typ.category() {
+                    FieldCategory::Scalar => {
+                        let wt_str = field.typ.wire_type_str();
+                        let read_expr = if let FieldType::Enum(ref e) = field.typ {
+                            let e = e.get_enum(desc);
+                            format!(
+                                "{}{}::from(reader.read_enum()?)",
+                                e.get_modules(desc),
+                                e.name
+                            )
+                        } else {
+                            format!("reader.{}()?", field.typ.get_read())
+                        };
+                        writeln!(
+                            w,
+                            "                ({}, {}) => {{ {} = Some({}::{}({})); }}",
+                            field.number, wt_str, oneof.name, enum_name, variant_name, read_expr
+                        )?;
+                    }
+                    FieldCategory::Message => {
+                        writeln!(
+                            w,
+                            "                ({}, WireType::LengthDelimited) => {{",
+                            field.number
+                        )?;
+                        writeln!(
+                            w,
+                            "                    let sub = reader.read_length_delimited()?;"
+                        )?;
+                        writeln!(
+                            w,
+                            "                    {} = Some({}::{}(sub));",
+                            oneof.name, enum_name, variant_name
+                        )?;
+                        writeln!(w, "                }}")?;
+                    }
+                    FieldCategory::Map => {
+                        return Err(Error::InvalidMessage(
+                            "map fields are not allowed in oneof".to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Catch-all: skip unknown and repeated/map fields.
+        writeln!(
+            w,
+            "                _ => {{ reader.skip_field(wire_type)?; }}"
+        )?;
+        writeln!(w, "            }}")?;
+        writeln!(w, "        }}")?;
+
+        // Construct Self.
+        write!(w, "        Ok(Self {{ buf")?;
+        for field in &self.fields {
+            if field.frequency.is_repeated() {
+                continue;
+            }
+            if let FieldType::Map(_, _) = &field.typ {
+                continue;
+            }
+            write!(w, ", {}", field.name)?;
+        }
+        for oneof in &self.oneofs {
+            write!(w, ", {}", oneof.name)?;
+        }
+        writeln!(w, " }})")?;
+        writeln!(w, "    }}")?;
+        Ok(())
+    }
+
+    /// Writes the `decode_field` helper method for use as fn pointer in FieldIter.
+    fn write_decode_field_method<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        writeln!(w)?;
+        writeln!(
+            w,
+            "    pub fn decode_field(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {{"
+        )?;
+        writeln!(w, "        let sub = reader.read_length_delimited()?;")?;
+        writeln!(w, "        Self::decode(sub)")?;
+        writeln!(w, "    }}")?;
+        Ok(())
+    }
+
+    /// Writes the `merge_from` method for merging duplicate singular message fields.
+    fn write_merge_from_method<W: Write>(
+        &self,
+        w: &mut W,
+        desc: &FileDescriptor,
+    ) -> Result<(), Error> {
+        writeln!(w)?;
+        writeln!(
+            w,
+            "    pub fn merge_from(&mut self, buf: &'a [u8]) -> Result<(), DecodeError> {{"
+        )?;
+        writeln!(w, "        let mut reader = Reader::new(buf);")?;
+        writeln!(w, "        while !reader.is_empty() {{")?;
+        writeln!(
+            w,
+            "            let (field_number, wire_type) = reader.read_tag()?;"
+        )?;
+        writeln!(w, "            match (field_number, wire_type) {{")?;
+
+        // Same match arms as decode, but writing to self.field instead of local.
+        for field in &self.fields {
+            if field.frequency.is_repeated() {
+                continue;
+            }
+            if let FieldType::Map(_, _) = &field.typ {
+                continue;
+            }
+            match field.typ.category() {
+                FieldCategory::Scalar => {
+                    let wt_str = field.typ.wire_type_str();
+                    let read_expr = if let FieldType::Enum(ref e) = field.typ {
+                        let e = e.get_enum(desc);
+                        format!(
+                            "{}{}::from(reader.read_enum()?)",
+                            e.get_modules(desc),
+                            e.name
+                        )
+                    } else {
+                        format!("reader.{}()?", field.typ.get_read())
+                    };
+                    writeln!(
+                        w,
+                        "                ({}, {}) => {{ self.{} = {}; }}",
+                        field.number, wt_str, field.name, read_expr
+                    )?;
+                }
+                FieldCategory::Message => {
+                    writeln!(
+                        w,
+                        "                ({}, WireType::LengthDelimited) => {{",
+                        field.number
+                    )?;
+                    writeln!(
+                        w,
+                        "                    let len = reader.read_varint()? as u32;"
+                    )?;
+                    writeln!(
+                        w,
+                        "                    let offset = reader.position() as u32;"
+                    )?;
+                    writeln!(w, "                    reader.skip_bytes(len as usize)?;")?;
+                    writeln!(
+                        w,
+                        "                    self.{}.record(offset, len);",
+                        field.name
+                    )?;
+                    writeln!(w, "                }}")?;
+                }
+                FieldCategory::Map => {}
+            }
+        }
+
+        // Oneof fields in merge_from.
+        for oneof in &self.oneofs {
+            let enum_name = format!("{}OneOf", snake_to_pascal_case(&oneof.name));
+            for field in &oneof.fields {
+                let variant_name = snake_to_pascal_case(&field.name);
+                match field.typ.category() {
+                    FieldCategory::Scalar => {
+                        let wt_str = field.typ.wire_type_str();
+                        let read_expr = if let FieldType::Enum(ref e) = field.typ {
+                            let e = e.get_enum(desc);
+                            format!(
+                                "{}{}::from(reader.read_enum()?)",
+                                e.get_modules(desc),
+                                e.name
+                            )
+                        } else {
+                            format!("reader.{}()?", field.typ.get_read())
+                        };
+                        writeln!(
+                            w,
+                            "                ({}, {}) => {{ self.{} = Some({}::{}({})); }}",
+                            field.number, wt_str, oneof.name, enum_name, variant_name, read_expr
+                        )?;
+                    }
+                    FieldCategory::Message => {
+                        writeln!(
+                            w,
+                            "                ({}, WireType::LengthDelimited) => {{",
+                            field.number
+                        )?;
+                        writeln!(
+                            w,
+                            "                    let sub = reader.read_length_delimited()?;"
+                        )?;
+                        writeln!(
+                            w,
+                            "                    self.{} = Some({}::{}(sub));",
+                            oneof.name, enum_name, variant_name
+                        )?;
+                        writeln!(w, "                }}")?;
+                    }
+                    FieldCategory::Map => {}
+                }
+            }
+        }
+
+        writeln!(
+            w,
+            "                _ => {{ reader.skip_field(wire_type)?; }}"
+        )?;
+        writeln!(w, "            }}")?;
+        writeln!(w, "        }}")?;
+        writeln!(w, "        Ok(())")?;
+        writeln!(w, "    }}")?;
+        Ok(())
+    }
+
+    /// Writes an accessor method for a singular message field.
+    fn write_singular_message_accessor<W: Write>(
+        &self,
+        w: &mut W,
+        field: &Field,
+        desc: &FileDescriptor,
+    ) -> Result<(), Error> {
+        let msg_type = field.typ.struct_rust_type(desc);
+        writeln!(w)?;
+        writeln!(
+            w,
+            "    pub fn {}(&self) -> Result<{}Decoded<'a>, DecodeError> {{",
+            field.name, msg_type
+        )?;
+        writeln!(w, "        match &self.{} {{", field.name)?;
+        writeln!(
+            w,
+            "            FieldSlice::None => {}Decoded::decode(&[]),",
+            msg_type
+        )?;
+        writeln!(
+            w,
+            "            FieldSlice::One {{ offset, len }} => {}Decoded::decode(&self.buf[*offset as usize..(*offset + *len) as usize]),",
+            msg_type
+        )?;
+        writeln!(w, "            FieldSlice::Many(slices) => {{")?;
+        writeln!(
+            w,
+            "                let mut result = {}Decoded::decode(&[])?;",
+            msg_type
+        )?;
+        writeln!(w, "                for &(offset, len) in slices {{")?;
+        writeln!(
+            w,
+            "                    result.merge_from(&self.buf[offset as usize..(offset + len) as usize])?;"
+        )?;
+        writeln!(w, "                }}")?;
+        writeln!(w, "                Ok(result)")?;
+        writeln!(w, "            }}")?;
+        writeln!(w, "        }}")?;
+        writeln!(w, "    }}")?;
+        Ok(())
+    }
+
+    /// Writes an accessor for a oneof message variant.
+    fn write_oneof_message_accessor<W: Write>(
+        &self,
+        w: &mut W,
+        _oneof: &OneOf,
+        field: &Field,
+        desc: &FileDescriptor,
+    ) -> Result<(), Error> {
+        let msg_type = field.typ.struct_rust_type(desc);
+        let fn_name = format!("decode_{}", field.name);
+        writeln!(w)?;
+        writeln!(
+            w,
+            "    pub fn {}(&self, bytes: &'a [u8]) -> Result<{}Decoded<'a>, DecodeError> {{",
+            fn_name, msg_type
+        )?;
+        writeln!(w, "        {}Decoded::decode(bytes)", msg_type)?;
+        writeln!(w, "    }}")?;
+        Ok(())
+    }
+
+    /// Writes an accessor method for a repeated field.
+    fn write_repeated_accessor<W: Write>(
+        &self,
+        w: &mut W,
+        field: &Field,
+        desc: &FileDescriptor,
+    ) -> Result<(), Error> {
+        writeln!(w)?;
+        match field.typ.category() {
+            FieldCategory::Scalar => {
+                if field.typ.is_packable() {
+                    // Repeated packable scalar — use PackedFieldIter.
+                    let rust_type = field.typ.decode_rust_type(desc);
+                    let wt_str = field.typ.wire_type_str();
+                    writeln!(
+                        w,
+                        "    pub fn {}(&self) -> PackedFieldIter<'a, {}> {{",
+                        field.name, rust_type
+                    )?;
+                    writeln!(
+                        w,
+                        "        PackedFieldIter::new(self.buf, {}, {}, Reader::{})",
+                        field.number,
+                        wt_str,
+                        field.typ.get_read()
+                    )?;
+                    writeln!(w, "    }}")?;
+                } else {
+                    // Repeated non-packable scalar (string, bytes) — use FieldIter.
+                    let rust_type = field.typ.decode_rust_type(desc);
+                    writeln!(
+                        w,
+                        "    pub fn {}(&self) -> FieldIter<'a, {}> {{",
+                        field.name, rust_type
+                    )?;
+                    writeln!(
+                        w,
+                        "        FieldIter::new(self.buf, {}, Reader::{})",
+                        field.number,
+                        field.typ.get_read()
+                    )?;
+                    writeln!(w, "    }}")?;
+                }
+            }
+            FieldCategory::Message => {
+                // Repeated message — use FieldIter with decode_field.
+                let msg_type = field.typ.struct_rust_type(desc);
+                writeln!(
+                    w,
+                    "    pub fn {}(&self) -> FieldIter<'a, {}Decoded<'a>> {{",
+                    field.name, msg_type
+                )?;
+                writeln!(
+                    w,
+                    "        FieldIter::new(self.buf, {}, {}Decoded::decode_field)",
+                    field.number, msg_type
+                )?;
+                writeln!(w, "    }}")?;
+            }
+            FieldCategory::Map => {
+                // Maps are handled separately.
+            }
+        }
+        Ok(())
+    }
+
+    /// Writes an accessor method for a map field.
+    fn write_map_accessor<W: Write>(
+        &self,
+        w: &mut W,
+        field: &Field,
+        desc: &FileDescriptor,
+    ) -> Result<(), Error> {
+        let (key_type, value_type) = field.typ.map().expect("field should be a map");
+
+        let key_rust_type = key_type.decode_rust_type(desc);
+        let value_rust_type = match value_type.category() {
+            FieldCategory::Message => {
+                let msg_type = value_type.struct_rust_type(desc);
+                format!("{}Decoded<'a>", msg_type)
+            }
+            _ => value_type.decode_rust_type(desc),
+        };
+
+        let decoder_fn = format!("decode_{}_entry", field.name);
+
+        writeln!(w)?;
+        writeln!(
+            w,
+            "    pub fn {}(&self) -> MapIter<'a, {}, {}> {{",
+            field.name, key_rust_type, value_rust_type
+        )?;
+        writeln!(
+            w,
+            "        MapIter::new(self.buf, {}, {})",
+            field.number, decoder_fn
+        )?;
+        writeln!(w, "    }}")?;
+        Ok(())
+    }
+
+    /// Writes the map entry decoder function (module-level).
+    fn write_map_entry_decoder<W: Write>(
+        &self,
+        w: &mut W,
+        field: &Field,
+        desc: &FileDescriptor,
+    ) -> Result<(), Error> {
+        let (key_type, value_type) = field.typ.map().expect("field should be a map");
+
+        let key_rust_type = key_type.decode_rust_type(desc);
+        let value_rust_type = match value_type.category() {
+            FieldCategory::Message => {
+                let msg_type = value_type.struct_rust_type(desc);
+                format!("{}Decoded<'a>", msg_type)
+            }
+            _ => value_type.decode_rust_type(desc),
+        };
+        let key_default = key_type.default_value(desc);
+        let value_default = match value_type.category() {
+            FieldCategory::Message => {
+                let msg_type = value_type.struct_rust_type(desc);
+                format!("{}Decoded::decode(&[])?", msg_type)
+            }
+            _ => value_type.default_value(desc),
+        };
+
+        let fn_name = format!("decode_{}_entry", field.name);
+
+        writeln!(w)?;
+        writeln!(
+            w,
+            "fn {}<'a>(reader: &mut Reader<'a>) -> Result<({}, {}), DecodeError> {{",
+            fn_name, key_rust_type, value_rust_type
+        )?;
+        writeln!(w, "    let entry_bytes = reader.read_length_delimited()?;")?;
+        writeln!(w, "    let mut r = Reader::new(entry_bytes);")?;
+        writeln!(w, "    let mut key = {};", key_default)?;
+        writeln!(w, "    let mut value = {};", value_default)?;
+        writeln!(w, "    while !r.is_empty() {{")?;
+        writeln!(w, "        let (fn_, wt) = r.read_tag()?;")?;
+        writeln!(w, "        match (fn_, wt) {{")?;
+
+        // Key: field 1
+        let key_wt_str = key_type.wire_type_str();
+        let key_read = if let FieldType::Enum(e) = key_type {
+            let e = e.get_enum(desc);
+            format!("{}{}::from(r.read_enum()?)", e.get_modules(desc), e.name)
+        } else {
+            format!("r.{}()?", key_type.get_read())
+        };
+        writeln!(
+            w,
+            "            (1, {}) => {{ key = {}; }}",
+            key_wt_str, key_read
+        )?;
+
+        // Value: field 2
+        match value_type.category() {
+            FieldCategory::Scalar => {
+                let value_wt_str = value_type.wire_type_str();
+                let value_read = if let FieldType::Enum(e) = value_type {
+                    let e = e.get_enum(desc);
+                    format!("{}{}::from(r.read_enum()?)", e.get_modules(desc), e.name)
+                } else {
+                    format!("r.{}()?", value_type.get_read())
+                };
+                writeln!(
+                    w,
+                    "            (2, {}) => {{ value = {}; }}",
+                    value_wt_str, value_read
+                )?;
+            }
+            FieldCategory::Message => {
+                let msg_type = value_type.struct_rust_type(desc);
+                writeln!(
+                    w,
+                    "            (2, WireType::LengthDelimited) => {{ value = {}Decoded::decode(r.read_length_delimited()?)?; }}",
+                    msg_type
+                )?;
+            }
+            FieldCategory::Map => {
+                return Err(Error::InvalidMessage(
+                    "nested maps are not allowed".to_string(),
+                ));
+            }
+        }
+
+        writeln!(w, "            _ => {{ r.skip_field(wt)?; }}")?;
+        writeln!(w, "        }}")?;
+        writeln!(w, "    }}")?;
+        writeln!(w, "    Ok((key, value))")?;
+        writeln!(w, "}}")?;
         Ok(())
     }
 
@@ -1604,6 +2500,10 @@ impl FileDescriptor {
         writeln!(
             w,
             "use {crate_path}::{{helpers::*, types::{{protobuf::*, MapKey, MessageBuilderBase, MessageBuilder, WireType}}, ScratchBuffer, ScratchWriter, Writer}};"
+        )?;
+        writeln!(
+            w,
+            "use {crate_path}::{{Reader, DecodeError, FieldSlice, FieldIter, PackedFieldIter, MapIter}};"
         )?;
         Ok(())
     }
