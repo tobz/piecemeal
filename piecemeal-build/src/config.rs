@@ -202,6 +202,13 @@ impl ConfigBuilder {
         for mut descriptor in descriptors.into_iter().chain(no_package) {
             let is_parent = parent_packages.contains(&descriptor.package);
             descriptor.resolve_types()?;
+            // Re-apply proto3 defaults (e.g. implicit packing of repeated scalar
+            // fields) now that types are resolved. During parsing these files went
+            // through with is_import: true, so set_defaults() ran before types were
+            // resolved and its nested-message BFS — which keys off resolved message
+            // types — never descended into nested messages. Running it here ensures
+            // nested messages get the same packing treatment as top-level ones.
+            descriptor.set_defaults()?;
             descriptor.sanity_checks()?;
             descriptor.write_to_file(&output_dir, &self.crate_path, is_parent)?;
         }
@@ -375,6 +382,40 @@ message TestMessage {
         assert!(
             content.contains("pub struct SecondBuilder"),
             "Second message missing from output"
+        );
+    }
+
+    #[test]
+    fn test_compile_nested_message_repeated_scalar_is_packed() {
+        // Regression test: proto3 implicitly packs repeated scalar fields. This must
+        // apply to nested messages as well as top-level ones. Because ConfigBuilder
+        // parses every file with is_import: true, packing must be (re)applied after
+        // type resolution or the nested-message BFS never descends into Inner.
+        let temp = tempdir().unwrap();
+
+        let proto = temp.path().join("nested.proto");
+        fs::write(
+            &proto,
+            "syntax = \"proto3\";\n\
+             message Outer {\n\
+             \x20 message Inner { repeated int32 values = 1; }\n\
+             \x20 Inner inner = 1;\n\
+             }\n",
+        )
+        .unwrap();
+
+        let output_dir = temp.path().join("output");
+        ConfigBuilder::new()
+            .input_files(&[&proto])
+            .output_dir(&output_dir)
+            .include_paths(&[temp.path()])
+            .compile()
+            .unwrap();
+
+        let content = fs::read_to_string(output_dir.join("nested.rs")).unwrap();
+        assert!(
+            content.contains("RepeatedBuilder::new(1, true,"),
+            "nested repeated scalar field should be packed, got:\n{content}"
         );
     }
 

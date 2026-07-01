@@ -1387,7 +1387,7 @@ impl FileDescriptor {
         Ok(())
     }
 
-    fn set_defaults(&mut self) -> Result<(), Error> {
+    pub(crate) fn set_defaults(&mut self) -> Result<(), Error> {
         // Set specific default behavior for messages/fields if we're using Protocol Buffers v3 syntax.
         if let Syntax::Proto3 = self.syntax {
             let mut nested_messages = VecDeque::new();
