@@ -15,5 +15,5 @@ repository = "https://github.com/tobz/piecemeal"
 
 [workspace.dependencies]
 byteorder = { version = "1.5", default-features = false }
-nom = { version = "7", default-features = false, features = ["std"] }
+nom = { version = "8", default-features = false, features = ["std"] }
 tracing = { version = "0.1", default-features = false, features = ["std"] }
