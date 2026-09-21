@@ -2,8 +2,6 @@
 
 use std::io;
 
-use byteorder::{LittleEndian as LE, WriteBytesExt};
-
 /// A Protocol Buffers-specific writer.
 ///
 /// Provides methods for writing various types of fields and values, as well as for writing entire messages.
@@ -152,31 +150,31 @@ where
     W: io::Write,
 {
     fn pb_write_u8(&mut self, x: u8) -> io::Result<()> {
-        WriteBytesExt::write_u8(self, x)
+        self.write_all(&[x])
     }
 
     fn pb_write_u32(&mut self, x: u32) -> io::Result<()> {
-        self.write_u32::<LE>(x)
+        self.write_all(&x.to_le_bytes())
     }
 
     fn pb_write_i32(&mut self, x: i32) -> io::Result<()> {
-        self.write_i32::<LE>(x)
+        self.write_all(&x.to_le_bytes())
     }
 
     fn pb_write_f32(&mut self, x: f32) -> io::Result<()> {
-        self.write_f32::<LE>(x)
+        self.write_all(&x.to_le_bytes())
     }
 
     fn pb_write_u64(&mut self, x: u64) -> io::Result<()> {
-        self.write_u64::<LE>(x)
+        self.write_all(&x.to_le_bytes())
     }
 
     fn pb_write_i64(&mut self, x: i64) -> io::Result<()> {
-        self.write_i64::<LE>(x)
+        self.write_all(&x.to_le_bytes())
     }
 
     fn pb_write_f64(&mut self, x: f64) -> io::Result<()> {
-        self.write_f64::<LE>(x)
+        self.write_all(&x.to_le_bytes())
     }
 
     fn pb_write_all(&mut self, buf: &[u8]) -> io::Result<()> {
